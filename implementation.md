@@ -36,7 +36,7 @@ Implement:
 - Plan file apply.
 - One-shot apply.
 - Compact and verbose modes.
-- Safety filters for ignored, secret-like, generated, runtime, and oversized files.
+- Safety filters for ignored, generated, runtime, and oversized files.
 - Long-context AI review using chunked summaries and a reducer.
 - Hunk-level diff parsing and staging.
 - Commit-message validation and AI retry.
