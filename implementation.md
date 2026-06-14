@@ -1023,8 +1023,7 @@ Test messages:
 
 - Reject generic messages.
 - Accept specific messages.
-- Enforce 72 chars.
-- Reject messages containing secret values.
+- Enforce 700 chars.
 
 Test provider layer:
 
