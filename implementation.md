@@ -917,7 +917,6 @@ Use typed errors:
 
 - `PreflightError`
 - `UnsafeFileError`
-- `SecretDetectedError`
 - `ProviderError`
 - `InvalidAIResponseError`
 - `PlanValidationError`
