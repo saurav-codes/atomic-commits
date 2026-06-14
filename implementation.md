@@ -367,28 +367,7 @@ known_hosts
 *.db
 ```
 
-Allow `.env.example`, `.env.sample`, and similar sample files only if they do not contain real-looking secrets.
-
-### 9.2 Secret-Like Content Detection
-
-Scan included text files and hunks for:
-
-- AWS access key patterns.
-- GitHub tokens.
-- OpenAI/Anthropic API key patterns.
-- Private key headers.
-- JWT-looking long tokens.
-- Slack tokens.
-- Stripe keys.
-- Generic assignment names like `SECRET`, `TOKEN`, `API_KEY`, `PASSWORD`, `PRIVATE_KEY` with long high-entropy values.
-
-Default behavior:
-
-- Hard refuse secret-like content.
-- Print exact file and line if available.
-- User can override only with `--allow-secret-like`.
-
-Even with override, commit message must not include secret values.
+Allow `.env.example`, `.env.sample`, and similar sample files.
 
 ### 9.3 Binary Files
 
