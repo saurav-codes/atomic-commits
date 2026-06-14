@@ -105,7 +105,7 @@ atomic-commits/
       test_apply_compact.py
       test_apply_verbose.py
       test_untracked_files.py
-      test_secret_filters.py
+      test_path_filters.py
       test_staged_policy.py
       test_resume.py
       test_binary_files.py
