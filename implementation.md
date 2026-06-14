@@ -7,7 +7,7 @@ Build an open-source Python CLI named `atc` that turns a dirty Git worktree into
 The tool must:
 
 - Scan all safe Git changes, including safe untracked files.
-- Respect `.gitignore` and also avoid obvious runtime/secret files by default.
+- Respect `.gitignore` and avoid obvious runtime files by default.
 - Use AI to review the entire change set before committing.
 - Handle long diffs with a map/reduce style review flow, similar to AI coding harnesses.
 - Generate specific, hunk-aware commit messages.
