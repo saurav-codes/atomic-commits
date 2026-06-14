@@ -621,7 +621,7 @@ The map prompt must ask AI to:
 - Identify behavior-level intent.
 - Identify test/docs pairs.
 - Identify unrelated hunks.
-- Identify generated/runtime/secret concerns missed by filters.
+- Identify generated/runtime concerns missed by filters.
 - Suggest precise commit subjects.
 - Avoid generic naming.
 
