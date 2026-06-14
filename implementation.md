@@ -167,7 +167,6 @@ Options:
 --paths PATH...                   Limit planning to paths.
 --include-staged                  Include already staged changes.
 --allow-binary                    Allow safe binary file commits.
---allow-secret-like               Allow secret-looking files/hunks after warning.
 --provider openai-compatible|anthropic
 --model MODEL
 --base-url URL                    For OpenAI-compatible providers.
