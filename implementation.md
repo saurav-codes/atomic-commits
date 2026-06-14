@@ -1117,7 +1117,7 @@ Do not implement staging before parser/fingerprint tests exist.
 - Do not rewrite history.
 - Do not auto-delete files.
 - Do not commit ignored files.
-- Do not commit `.env` or secrets.
+- Do not commit `.env`.
 - Do not use zero-context patch staging.
 - Do not create generic commit messages.
 - Do not make broad fallback commits after hunk staging fails.
