@@ -728,7 +728,7 @@ Reject messages if:
 - Only names a file.
 - Scope is too broad for the hunk.
 - Longer than 72 chars.
-- Uses secrets or copied code content.
+- Uses copied code content.
 - Does not include a concrete verb/object.
 
 Message format:
