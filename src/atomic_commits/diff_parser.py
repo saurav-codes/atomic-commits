@@ -21,17 +21,52 @@ _HUNK_HEADER_RE = re.compile(
     r"\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@(?P<rest>.*)$"
 )
 
+# Matches a single git C-style escape inside a quoted path: either an octal
+# byte (1-3 octal digits, git emits 3) or one of the named control-char escapes.
+_GIT_QUOTED_ESCAPE_RE = re.compile(r"\\([0-7]{1,3}|[\\\"abtnvfr])")
+
+# Maps git's named C-escapes to their single-byte values.
+_GIT_NAMED_ESCAPES = {
+    "\\": 0x5C,
+    '"': 0x22,
+    "a": 0x07,
+    "b": 0x08,
+    "t": 0x09,
+    "n": 0x0A,
+    "v": 0x0B,
+    "f": 0x0C,
+    "r": 0x0D,
+}
+
 
 def _unquote_path(path: str) -> str:
-    """Undo git's C-style quoting for paths containing special characters."""
+    """Undo git's C-style quoting for paths containing special characters.
+
+    Git quotes paths using C-style escapes when they contain spaces or other
+    special bytes. Non-ASCII bytes are emitted as octal ``\\NNN`` sequences and
+    the underlying byte stream is UTF-8 (``core.quotePath`` only controls
+    *whether* non-ASCII bytes are quoted, not the encoding). We reassemble the
+    escaped bytes and decode them as UTF-8 so non-ASCII paths round-trip
+    correctly; unquoted paths are already UTF-8 text from git's stdout.
+    """
     path = path.strip()
     if not (path.startswith('"') and path.endswith('"')):
+        # Unquoted paths arrive as UTF-8 text from GitClient's stdout decode;
+        # nothing to reinterpret.
         return path
     inner = path[1:-1]
-    try:
-        return inner.encode("latin-1", "backslashreplace").decode("unicode_escape")
-    except (UnicodeDecodeError, UnicodeEncodeError):
-        return inner
+    out = bytearray()
+    pos = 0
+    for m in _GIT_QUOTED_ESCAPE_RE.finditer(inner):
+        out.extend(inner[pos : m.start()].encode("utf-8", "surrogateescape"))
+        esc = m.group(1)
+        if esc[0].isdigit():  # octal \NNN -> single raw byte
+            out.append(int(esc, 8) & 0xFF)
+        else:
+            out.append(_GIT_NAMED_ESCAPES[esc])
+        pos = m.end()
+    out.extend(inner[pos:].encode("utf-8", "surrogateescape"))
+    return out.decode("utf-8", "surrogateescape")
 
 
 def _strip_prefix(path: str) -> str:
@@ -112,6 +147,129 @@ def _classify(section: str, old_path: str | None, new_path: str | None) -> str:
     return "modified"
 
 
+def _make_hunk(
+    *, file_path: str, hunk_id: str, old_start: int, new_start: int,
+    header_suffix: str, body: list[str],
+) -> Hunk:
+    old_count = sum(1 for line in body if not line.startswith(("+", "\\")))
+    new_count = sum(1 for line in body if not line.startswith(("-", "\\")))
+    header_line = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{header_suffix}\n"
+    context_before: list[str] = []
+    removed: list[str] = []
+    added: list[str] = []
+    context_after: list[str] = []
+    seen_change = False
+    for raw in body:
+        if raw.startswith("\\"):
+            continue
+        tag, text = raw[:1], raw[1:].rstrip("\n")
+        if tag == "+":
+            added.append(text)
+            seen_change = True
+        elif tag == "-":
+            removed.append(text)
+            seen_change = True
+        elif seen_change:
+            context_after.append(text)
+        else:
+            context_before.append(text)
+    patch_text = header_line + "".join(body)
+    return Hunk(
+        hunk_id=hunk_id,
+        file_path=file_path,
+        old_start=old_start,
+        old_count=old_count,
+        new_start=new_start,
+        new_count=new_count,
+        header=header_line.rstrip("\n"),
+        context_before=context_before,
+        removed=removed,
+        added=added,
+        context_after=context_after,
+        patch=patch_text,
+        fingerprint=hunk_fingerprint(
+            file_path=file_path,
+            added=added,
+            removed=removed,
+            header=header_line,
+            context_before=context_before,
+        ),
+    )
+
+
+def _split_body(
+    body: list[str], old_start: int, new_start: int,
+) -> list[tuple[int, int, list[str]]]:
+    """Split one Git hunk into independently stageable change blocks."""
+    changed = [i for i, line in enumerate(body) if line.startswith(("+", "-"))]
+    if not changed:
+        return []
+    runs: list[tuple[int, int]] = []
+    start = end = changed[0]
+    for index in changed[1:]:
+        if index == end + 1 or all(line.startswith("\\") for line in body[end + 1 : index]):
+            end = index
+        else:
+            runs.append((start, end))
+            start = end = index
+    runs.append((start, end))
+    if len(runs) == 1:
+        return [(old_start, new_start, body)]
+
+    parts: list[tuple[int, int, list[str]]] = []
+    for run_index, (run_start, run_end) in enumerate(runs):
+        left_limit = 3
+        if run_index:
+            previous_end = runs[run_index - 1][1]
+            gap = sum(
+                1 for line in body[previous_end + 1 : run_start]
+                if not line.startswith("\\")
+            )
+            left_limit = min(3, gap // 2)
+        left = run_start
+        context = 0
+        while left > 0 and context < left_limit:
+            previous = body[left - 1]
+            if previous.startswith(("+", "-")):
+                break
+            left -= 1
+            if not previous.startswith("\\"):
+                context += 1
+        right_limit = 3
+        if run_index + 1 < len(runs):
+            next_start = runs[run_index + 1][0]
+            gap = sum(
+                1 for line in body[run_end + 1 : next_start]
+                if not line.startswith("\\")
+            )
+            right_limit = min(3, gap - gap // 2)
+        right = run_end + 1
+        context = 0
+        while right < len(body) and context < right_limit:
+            current = body[right]
+            if current.startswith(("+", "-")):
+                break
+            right += 1
+            if not current.startswith("\\"):
+                context += 1
+        # Keep the no-newline marker attached to the preceding selected line.
+        if right < len(body) and body[right].startswith("\\"):
+            right += 1
+
+        part_old = old_start
+        part_new = new_start
+        for line in body[:left]:
+            if line.startswith("-"):
+                part_old += 1
+            elif line.startswith("+"):
+                part_new += 1
+            elif not line.startswith("\\"):
+                part_old += 1
+                part_new += 1
+        parts.append((part_old, part_new, body[left:right]))
+    return parts
+
+
 def _parse_hunks(section: str, file_path: str) -> list[Hunk]:
     lines = section.splitlines(keepends=True)
     hunks: list[Hunk] = []
@@ -124,11 +282,9 @@ def _parse_hunks(section: str, file_path: str) -> list[Hunk]:
             i += 1
             continue
         ordinal += 1
-        header_line = lines[i]
         old_start = int(header_match.group("old_start"))
-        old_count = int(header_match.group("old_count") or 1)
         new_start = int(header_match.group("new_start"))
-        new_count = int(header_match.group("new_count") or 1)
+        header_suffix = header_match.group("rest")
 
         body: list[str] = []
         j = i + 1
@@ -136,53 +292,19 @@ def _parse_hunks(section: str, file_path: str) -> list[Hunk]:
             body.append(lines[j])
             j += 1
 
-        context_before: list[str] = []
-        removed: list[str] = []
-        added: list[str] = []
-        context_after: list[str] = []
-        seen_change = False
-        for raw in body:
-            if raw.startswith("\\"):  # \ No newline at end of file
-                continue
-            tag, text = (raw[:1], raw[1:].rstrip("\n"))
-            if tag == "+":
-                added.append(text)
-                seen_change = True
-            elif tag == "-":
-                removed.append(text)
-                seen_change = True
-            else:  # context line (space or empty)
-                if seen_change:
-                    context_after.append(text)
-                else:
-                    context_before.append(text)
-
-        patch_text = header_line + "".join(body)
-        hunk_id = f"{file_path}::hunk::{ordinal}"
-        fp = hunk_fingerprint(
-            file_path=file_path,
-            added=added,
-            removed=removed,
-            header=header_line,
-            context_before=context_before,
-        )
-        hunks.append(
-            Hunk(
-                hunk_id=hunk_id,
-                file_path=file_path,
-                old_start=old_start,
-                old_count=old_count,
-                new_start=new_start,
-                new_count=new_count,
-                header=header_line.rstrip("\n"),
-                context_before=context_before,
-                removed=removed,
-                added=added,
-                context_after=context_after,
-                patch=patch_text,
-                fingerprint=fp,
+        parts = _split_body(body, old_start, new_start)
+        for atom, (part_old, part_new, part_body) in enumerate(parts, start=1):
+            suffix = "" if len(parts) == 1 else f".{atom}"
+            hunks.append(
+                _make_hunk(
+                    file_path=file_path,
+                    hunk_id=f"{file_path}::hunk::{ordinal}{suffix}",
+                    old_start=part_old,
+                    new_start=part_new,
+                    header_suffix=header_suffix,
+                    body=part_body,
+                )
             )
-        )
         i = j
     return hunks
 

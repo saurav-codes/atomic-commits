@@ -10,11 +10,47 @@ round-trip.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
+from . import diff_parser, safety
 from .errors import CommitError, PatchApplyError, PreflightError
+
+# Directory name used inside the temp dir by diff_no_index_batch. Paths in the
+# batch diff output are prefixed with this; it is stripped to recover the
+# repo-relative path.
+_BATCH_CONTENT_DIR = "_atc_content"
+
+
+def _warn_denylisted_in_backup(patch: bytes) -> None:
+    """Warn on stderr if the backup patch contains denylisted paths.
+
+    The full backup is always preserved for reversibility — this is a
+    best-effort warning so the user can review before ``git apply``.
+    """
+    try:
+        text = patch.decode("utf-8", "surrogateescape")
+        denylisted: set[str] = set()
+        for fc in diff_parser.parse_patch(text, is_tracked=True):
+            for p in (fc.path, fc.old_path):
+                if p is None:
+                    continue
+                excluded, _ = safety.path_excluded(p)
+                if excluded:
+                    denylisted.add(p)
+        if denylisted:
+            print(
+                "warning: backup patch contains denylisted paths "
+                "(full backup preserved for reversibility; review before "
+                "`git apply`): " + ", ".join(sorted(denylisted)),
+                file=sys.stderr,
+            )
+    except Exception:  # noqa: BLE001 - best-effort warning, never fail the backup
+        pass
 
 
 class GitClient:
@@ -41,17 +77,23 @@ class GitClient:
         *,
         input_bytes: bytes | None = None,
         check: bool = True,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[bytes]:
         if shutil.which("git") is None:
             raise PreflightError(
                 "git executable not found on PATH",
                 hint="Install Git and ensure `git` is available.",
             )
+        run_env = None
+        if env:
+            run_env = dict(os.environ)
+            run_env.update(env)
         proc = subprocess.run(  # noqa: S603
             ["git", *args],
             cwd=self._cwd(),
             input=input_bytes,
             capture_output=True,
+            env=run_env,
         )
         if check and proc.returncode != 0:
             stderr = proc.stderr.decode("utf-8", "replace").strip()
@@ -132,6 +174,13 @@ class GitClient:
             check=False,
         )
 
+    def diff_head(self) -> str:
+        """Return the final staged plus unstaged change relative to HEAD."""
+        return self.run_text(
+            ["diff", "HEAD", "--find-renames", "--patch", "--unified=3", "--binary"],
+            check=False,
+        )
+
     def diff_cached(self) -> str:
         return self.run_text(
             ["diff", "--cached", "--find-renames", "--patch", "--unified=3", "--binary"],
@@ -154,6 +203,61 @@ class GitClient:
             check=False,
         )
         return proc.stdout.decode("utf-8", "surrogateescape")
+
+    def diff_no_index_batch(self, paths: list[str]) -> dict[str, str]:
+        """Synthesize added-file diffs for multiple untracked files in one subprocess.
+
+        Creates a temp directory mirroring the untracked files and runs a single
+        ``git diff --no-index`` between an empty dir and the content dir. Returns
+        a dict mapping each repo-relative path to its individual patch section.
+        Files that produce no diff output (e.g. empty files) are absent from the
+        dict; callers should treat a missing key as an empty diff.
+        """
+        if not paths:
+            return {}
+        root = self._toplevel or self.repo
+        result: dict[str, str] = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty = Path(tmpdir) / "_empty"
+            content = Path(tmpdir) / _BATCH_CONTENT_DIR
+            empty.mkdir()
+            content.mkdir()
+            for rel in paths:
+                src = root / rel
+                dst = content / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(src, dst)
+                except OSError:
+                    try:
+                        shutil.copy2(src, dst)
+                    except OSError:
+                        # File vanished between listing and diffing; skip it.
+                        continue
+            proc = self._run(
+                [
+                    "diff", "--no-index", "--unified=3", "--binary",
+                    "--src-prefix=a/", "--dst-prefix=b/",
+                    str(empty), str(content),
+                ],
+                check=False,
+            )
+            output = proc.stdout.decode("utf-8", "surrogateescape")
+        # Split into per-file sections and map back to repo-relative paths.
+        # The diff output paths include the temp dir structure (e.g.
+        # "var/folders/.../_atc_content/new_module.py" after a/ stripping);
+        # strip everything up to and including the content dir name.
+        marker = _BATCH_CONTENT_DIR + "/"
+        for section in diff_parser._split_file_sections(output):
+            fcs = diff_parser.parse_patch(section, is_tracked=False)
+            if not fcs:
+                continue
+            rel = fcs[0].path
+            idx = rel.find(marker)
+            if idx >= 0:
+                rel = rel[idx + len(marker) :]
+            result[rel] = section
+        return result
 
     # -- staging / apply ---------------------------------------------------
     def add_intent(self, path: str) -> None:
@@ -197,11 +301,12 @@ class GitClient:
             return
         self._run(["restore", "--staged", "--", *paths], check=False)
 
-    def commit(self, message: str, *, no_verify: bool = False) -> str:
+    def commit(self, message: str, *, no_verify: bool = False, committer_date: str | None = None) -> str:
         args = ["commit", "-m", message]
         if no_verify:
             args.append("--no-verify")
-        proc = self._run(args, check=False)
+        env = {"GIT_COMMITTER_DATE": committer_date} if committer_date else None
+        proc = self._run(args, check=False, env=env)
         if proc.returncode != 0:
             raise CommitError(
                 "git commit failed",
@@ -210,4 +315,6 @@ class GitClient:
         return self.head_sha()
 
     def backup_patch(self) -> bytes:
-        return self.run_bytes(["diff", "--binary"], check=False)
+        patch = self.run_bytes(["diff", "--binary"], check=False)
+        _warn_denylisted_in_backup(patch)
+        return patch

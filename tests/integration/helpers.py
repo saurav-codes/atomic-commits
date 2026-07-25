@@ -41,10 +41,8 @@ def make_cfg(repo: Path, mode: str = "verbose", **kw) -> RunConfig:
 
 
 def plan_with(provider, git_client: GitClient, cfg: RunConfig):
-    import asyncio
-
     snapshot = scan(git_client, cfg)
-    return snapshot, asyncio.run(planner.plan(provider, git_client, snapshot, cfg))
+    return snapshot, planner.plan(provider, git_client, snapshot, cfg)
 
 
 __all__ = [

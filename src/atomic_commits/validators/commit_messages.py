@@ -43,6 +43,8 @@ def validate_commit_message(message: str) -> list[str]:
         reasons.append(f"subject longer than {MAX_LEN} characters")
     if _FILENAME_ONLY_RE.match(subject.split(":")[-1].strip()):
         reasons.append("message only names a file")
+    if not _FORMAT_RE.match(subject):
+        reasons.append("subject must match 'scope: verb object' (scope required)")
 
     after_colon = subject.split(":", 1)[-1].strip() if ":" in subject else subject
     tokens = re.findall(r"[a-zA-Z]+", after_colon.lower())

@@ -1,4 +1,3 @@
-import asyncio
 
 from atomic_commits import planner
 from atomic_commits.committer import Committer
@@ -24,7 +23,7 @@ def test_repo_subdir_resolves_paths(git_repo, mock_provider):
     # Scanner must see the change relative to the repo root.
     assert any(f.path == "pkg/m.py" for f in snapshot.files)
 
-    plan = asyncio.run(planner.plan(mock_provider, gc, snapshot, cfg))
+    plan = planner.plan(mock_provider, gc, snapshot, cfg)
     results = Committer(gc, cfg).apply(plan)
     assert all(r.status == "committed" for r in results)
     assert commit_count(git_repo) == before + len(plan.groups)

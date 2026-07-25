@@ -3,6 +3,6 @@
 Turn a dirty Git worktree into meaningful atomic commits using AI.
 """
 
-__all__ = ["__version__"]
+from importlib.metadata import version as _version
 
-__version__ = "0.1.0"
+__version__ = _version("atomic-commits")

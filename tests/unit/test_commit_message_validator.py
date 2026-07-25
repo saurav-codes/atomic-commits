@@ -16,7 +16,7 @@ def test_rejects_filename_only():
 
 
 def test_rejects_too_long():
-    long = "backend(auth): " + "x" * 80
+    long = "backend(auth): " + "x" * 690
     reasons = validate_commit_message(long)
     assert any("longer than" in r for r in reasons)
 
@@ -26,6 +26,8 @@ def test_rejects_wip():
 
 
 def test_requires_object_after_verb():
+    # The format check (scope: verb object) now rejects messages that lack an
+    # object after the verb, closing the previously-skipped missing-object gap.
     assert validate_commit_message("backend(auth): add") != []
 
 

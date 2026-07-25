@@ -10,38 +10,72 @@ from __future__ import annotations
 import json
 from typing import Any
 
-MAP_SYSTEM = """You are planning Git commits, not editing code.
-You review a chunk of a larger change set and report structured findings.
+MAP_SYSTEM = """You investigate part of a larger code change for a Git commit planner.
 Rules:
 - Use ONLY the provided diffs. Do not invent files, hunks, or behavior.
-- Identify behavior-level intent for each hunk.
-- Identify test/docs pairs and unrelated hunks.
+- Identify the likely intent of every changed region.
+- Record exact hunk IDs, related tests/docs, dependencies, and unrelated changes.
+- These are evidence notes, not the final commit groups.
 - Flag any generated or runtime content the filters may have missed.
-- Suggest precise, specific commit subjects. Generic subjects are invalid.
+- Keep the summary under 80 words and every other string under 30 words.
+- Use at most 3 message terms per hunk. Do not repeat diff text.
+- Use clear, simple English.
 Respond as a single JSON object matching the ChunkReview schema.
 """
 
-REDUCE_SYSTEM = """You are planning Git commits, not editing code.
-You combine per-chunk reviews into a final commit plan.
+REDUCE_SYSTEM = """You are the lead Git commit planner.
+You receive global repository facts and evidence notes from large change regions.
 Rules:
 - Assign every safe hunk to exactly one commit group. Never duplicate a hunk.
 - Keep unsafe/excluded hunks out of groups; list them under "excluded" with a reason.
-- Commit messages must be specific to the behavior, in the form "scope: verb exact behavior".
+- Create the greatest number of commits that remain independently meaningful and complete.
+- Split unrelated work and separable refactors, behavior, tests, docs, config, and migrations.
+- Keep pieces together when separating them would make either commit incomplete or broken.
+- Add dependency group IDs to depends_on when order matters.
+- For every final group, explain why it cannot be split further in unsplittable_reason.
+- Commit messages must use clear, simple English in the form "type(scope): verb exact behavior".
 - Reject and avoid generic words like update, change, misc, cleanup, wip, remaining.
-- In compact mode, group by coherent behavior; pair implementation with its exact matching tests.
-- In verbose mode, prefer one hunk per commit.
-- If unsure about a hunk, place it in its own group with a precise message or mark it risky.
+- Do not create artificial micro-commits just to increase the count.
 Respond as a single JSON object matching the CommitPlan schema.
 """
 
+DIRECT_SYSTEM = """You are the lead Git commit planner. You see the complete final change.
+Your goal is the greatest possible number of honest, useful atomic commits.
+Rules:
+- Use only supplied files and hunk IDs. Assign every safe hunk exactly once.
+- Each commit must have one clear purpose and include everything required for that purpose.
+- Split separable refactors, features, fixes, tests, docs, config, and migrations.
+- Keep changes together when a split would be incomplete, misleading, or broken.
+- Order dependent commits with depends_on group IDs.
+- Use clear, simple English messages: "type(scope): verb exact behavior".
+- Avoid generic words: update, change, misc, cleanup, wip, remaining.
+- State why each group cannot be split further in unsplittable_reason.
+- Never create empty or artificial commits.
+Respond as one JSON object matching the CommitPlan schema.
+"""
 
-def map_user(context_pack: dict[str, Any], chunk_id: str, chunk_diff: str, hunk_ids: list[str]) -> str:
+REVIEW_SYSTEM = """You are the final reviewer for an atomic Git commit plan.
+Try hard to split every proposed commit into more useful commits while preserving meaning.
+Also repair missing, duplicated, wrongly coupled, or wrongly ordered hunks.
+Return the complete corrected CommitPlan, even when no changes are needed.
+Use clear, simple English. Never create artificial micro-commits.
+"""
+
+
+def map_user(
+    context_pack: dict[str, Any], chunk_id: str, chunk_diff: str, hunk_ids: list[str],
+    change_facts: dict[str, Any] | None = None,
+) -> str:
     return json.dumps(
         {
-            "context": context_pack,
+            "context": {
+                key: value for key, value in context_pack.items()
+                if key != "hunk_inventory"
+            },
             "chunk_id": chunk_id,
             "hunk_ids_in_chunk": hunk_ids,
             "diff": chunk_diff,
+            "local_change_facts": change_facts or {},
             "output_schema": {
                 "chunk_id": "str",
                 "summary": "str",
@@ -65,7 +99,10 @@ def reduce_user(
 ) -> str:
     return json.dumps(
         {
-            "context": context_pack,
+            "context": {
+                key: value for key, value in context_pack.items()
+                if key != "hunk_inventory"
+            },
             "mode": mode,
             "repo_fingerprint": repo_fingerprint,
             "base_head": base_head,
@@ -79,11 +116,13 @@ def reduce_user(
                 "groups": [
                     {
                         "group_id": "str",
-                        "message": "scope: verb exact behavior",
+                        "message": "type(scope): verb exact behavior",
                         "rationale": "str",
                         "hunk_ids": ["str"],
                         "file_paths": ["str"],
                         "risk": "low|medium|high",
+                        "depends_on": ["group_id"],
+                        "unsplittable_reason": "why another split would be incomplete or artificial",
                     }
                 ],
                 "excluded": [{"path": "str", "reason": "str", "hunk_ids": ["str"]}],
@@ -92,6 +131,48 @@ def reduce_user(
         },
         ensure_ascii=False,
     )
+
+
+def direct_user(
+    context_pack: dict[str, Any], change_graph: dict[str, Any], diff: str,
+    mode: str, repo_fingerprint: str, base_head: str,
+) -> str:
+    payload = json.loads(
+        reduce_user(context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head)
+    )
+    payload.update(
+        {
+            "task": "Create the finest useful commit plan from this complete change.",
+            "change_graph": change_graph,
+            "diff": diff,
+        }
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def review_user(
+    context_pack: dict[str, Any], change_graph: dict[str, Any], current_plan: dict[str, Any],
+    diff_or_evidence: Any, mode: str, repo_fingerprint: str, base_head: str,
+) -> str:
+    payload = json.loads(
+        reduce_user(context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head)
+    )
+    payload.update(
+        {
+            "task": "Return a corrected plan with the maximum honest number of atomic commits.",
+            "current_plan": current_plan,
+            "change_graph": change_graph,
+            "diff_or_evidence": diff_or_evidence,
+            "review_checks": [
+                "Can any group be split into two independently meaningful commits?",
+                "Does each group contain everything required for its purpose?",
+                "Are unrelated hunks separated?",
+                "Are dependencies ordered?",
+                "Are all messages specific and plain?",
+            ],
+        }
+    )
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def rename_message_user(hunk_context: str, rejected: str, reasons: list[str]) -> str:

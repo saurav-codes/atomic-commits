@@ -40,6 +40,34 @@ class Hunk(BaseModel):
     fingerprint: str = ""
 
 
+class ChangeUnit(BaseModel):
+    """One exact changed region plus local, non-AI context."""
+
+    unit_id: str
+    hunk_id: str
+    file_path: str
+    status: FileStatus
+    language: str = "text"
+    symbol: str = ""
+    change_kind: str = "code"
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class ChangeLink(BaseModel):
+    """A locally proven relationship between two changed regions."""
+
+    source: str
+    target: str
+    kind: str
+    reason: str
+
+
+class ChangeGraph(BaseModel):
+    units: list[ChangeUnit] = Field(default_factory=list)
+    links: list[ChangeLink] = Field(default_factory=list)
+
+
 class FileChange(BaseModel):
     path: str
     old_path: str | None = None
@@ -72,6 +100,8 @@ class CommitGroup(BaseModel):
     hunk_ids: list[str] = Field(default_factory=list)
     file_paths: list[str] = Field(default_factory=list)
     risk: Risk = "low"
+    depends_on: list[str] = Field(default_factory=list)
+    unsplittable_reason: str = ""
 
 
 class ExcludedChange(BaseModel):
@@ -98,6 +128,7 @@ class SuggestedGroup(BaseModel):
 
 class ChunkReview(BaseModel):
     chunk_id: str
+    hunk_ids: list[str] = Field(default_factory=list)
     summary: str = ""
     detected_concerns: list[str] = Field(default_factory=list)
     suggested_groups: list[SuggestedGroup] = Field(default_factory=list)

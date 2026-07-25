@@ -1,8 +1,7 @@
-import asyncio
 
+from atomic_commits import planner
 from atomic_commits.git_client import GitClient
 from atomic_commits.scanner import scan
-from atomic_commits import planner
 from atomic_commits.session import SessionStore
 
 from .helpers import commit_count, git, make_cfg
@@ -20,7 +19,7 @@ def test_dry_run_makes_no_commits(git_repo, mock_provider):
     before = commit_count(git_repo)
 
     snapshot = scan(gc, cfg)
-    plan = asyncio.run(planner.plan(mock_provider, gc, snapshot, cfg))
+    plan = planner.plan(mock_provider, gc, snapshot, cfg)
     store = SessionStore(gc)
     sid = store.create()
     store.write_plan(sid, plan)

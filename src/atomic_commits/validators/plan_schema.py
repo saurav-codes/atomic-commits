@@ -7,7 +7,6 @@ paths match their hunk paths.
 
 from __future__ import annotations
 
-from ..errors import PlanValidationError
 from ..models import CommitPlan, Mode
 from .commit_messages import validate_commit_message
 
@@ -24,6 +23,11 @@ def validate_plan(
     safe_set = set(safe_hunk_ids)
 
     assigned: list[str] = []
+    group_ids = [group.group_id for group in plan.groups]
+    if len(group_ids) != len(set(group_ids)):
+        errors.append("group IDs must be unique")
+    known_groups = set(group_ids)
+    prior_groups: set[str] = set()
     for group in plan.groups:
         if not group.hunk_ids:
             errors.append(f"group '{group.group_id}' has no hunks")
@@ -55,6 +59,16 @@ def validate_plan(
             errors.append(
                 f"verbose group '{group.group_id}' has multiple hunks without rationale"
             )
+        for dependency in group.depends_on:
+            if dependency not in known_groups:
+                errors.append(
+                    f"group '{group.group_id}' depends on unknown group '{dependency}'"
+                )
+            elif dependency not in prior_groups:
+                errors.append(
+                    f"group '{group.group_id}' must appear after dependency '{dependency}'"
+                )
+        prior_groups.add(group.group_id)
 
     # Duplicate assignment.
     seen: set[str] = set()
@@ -77,9 +91,3 @@ def validate_plan(
             errors.append(f"excluded entry for '{exc.path}' has no reason")
 
     return errors
-
-
-def validate_or_raise(plan: CommitPlan, **kwargs) -> None:
-    errors = validate_plan(plan, **kwargs)
-    if errors:
-        raise PlanValidationError("plan validation failed:\n  " + "\n  ".join(errors))

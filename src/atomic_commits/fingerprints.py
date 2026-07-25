@@ -19,10 +19,6 @@ HEADING_RE = re.compile(
 _HUNK_RANGE_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
-
-
 def _normalize_header(header: str) -> str:
     """Drop @@ line-number ranges, keeping only the section heading text.
 
@@ -66,7 +62,7 @@ def hunk_fingerprint(
             f"header:{_normalize_header(header)}",
         ]
     )
-    return _sha256(payload)
+    return hashlib.sha256(payload.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def worktree_fingerprint(
@@ -85,8 +81,5 @@ def worktree_fingerprint(
         parts.append(f"hunk:{fp}")
     for h in sorted(untracked_hashes):
         parts.append(f"untracked:{h}")
-    return _sha256("\n".join(parts))
+    return hashlib.sha256("\n".join(parts).encode("utf-8", "surrogateescape")).hexdigest()
 
-
-def content_hash(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
