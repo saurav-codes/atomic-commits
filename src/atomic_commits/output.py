@@ -1,21 +1,24 @@
-"""Rich terminal output (implementation.md section 20)."""
+"""Human-readable Rich output and JSON rendering helpers."""
 
 from __future__ import annotations
 
 import json
 import sys
-import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
+from threading import RLock
 from typing import Any
 
 from rich.console import Console
 from rich.markup import escape
-from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.table import Column, Table
 
 from .models import AppliedCommit, CommitPlan, Hunk, WorktreeSnapshot
 
 console = Console()
 err_console = Console(stderr=True)
+_live_lock = RLock()
+_active_step: tuple[Progress, int, str] | None = None
 
 # Rich color per CommitGroup.risk level, used by print_plan.
 _RISK_COLOR: dict[str, str] = {"high": "red", "medium": "yellow", "low": "green"}
@@ -29,27 +32,43 @@ def step(message: str, *, enabled: bool = True):
 
     Appends elapsed time each refresh so the user sees progress during long
     LLM calls. No-op when disabled (JSON mode) or stderr isn't a TTY, so
-    piped/CI output stays clean. Nested `step()` calls simply render their own
-    spinner on top of the outer one (Rich handles one live display at a time).
+    piped/CI output stays clean.
     """
     if not enabled or not err_console.is_terminal:
         return nullcontext()
 
-    class _Spinner:
-        def __init__(self) -> None:
-            self._status = err_console.status(message, spinner="dots")
-            self._start = time.monotonic()
+    progress = Progress(
+        SpinnerColumn("dots"),
+        TextColumn("{task.description}", table_column=Column(ratio=1)),
+        TimeElapsedColumn(),
+        console=err_console,
+        expand=True,
+        transient=True,
+    )
+    task_id = progress.add_task(message, total=None)
 
-        def __enter__(self) -> None:
-            self._status.start()
-            self._status.update(f"{message} (0s elapsed)")
+    @contextmanager
+    def run():
+        global _active_step
+        with progress:
+            with _live_lock:
+                previous = _active_step
+                _active_step = (progress, task_id, message)
+            try:
+                yield progress
+            finally:
+                with _live_lock:
+                    _active_step = previous
 
-        def __exit__(self, *exc) -> None:
-            elapsed = int(time.monotonic() - self._start)
-            self._status.update(f"{message} ({elapsed}s elapsed)")
-            self._status.stop()
+    return run()
 
-    return _Spinner()
+
+def live(message: str) -> None:
+    """Update the currently visible Rich task without adding terminal noise."""
+    with _live_lock:
+        if _active_step is not None:
+            progress, task_id, base = _active_step
+            progress.update(task_id, description=f"{escape(base)} — {escape(message)}")
 
 
 def note(message: str, *, enabled: bool = True, style: str = "dim") -> None:
