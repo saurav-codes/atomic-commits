@@ -1,4 +1,4 @@
-"""Prompt templates (implementation.md sections 13 and 23).
+"""Prompt templates for direct, evidence, lead, and review requests.
 
 Prompts make the AI's job explicit: it is planning Git commits, not editing
 code; it must use only provided diffs; every safe hunk is assigned exactly

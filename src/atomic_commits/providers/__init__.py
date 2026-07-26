@@ -10,6 +10,7 @@ from ..config import (
     RunConfig,
 )
 from ..errors import ProviderError
+from ..output import live, note
 from .anthropic import AnthropicProvider
 from .base import AIProvider
 from .openai_compatible import OpenAICompatibleProvider
@@ -31,6 +32,14 @@ def build_provider(cfg: RunConfig) -> AIProvider:
         )
     timeout = cfg.provider_timeout if cfg.provider_timeout is not None else DEFAULT_PROVIDER_TIMEOUT
     attempts = cfg.retry_attempts if cfg.retry_attempts is not None else DEFAULT_RETRY_ATTEMPTS
+
+    def progress(message: str) -> None:
+        if cfg.json_output:
+            return
+        live(message)
+        if "retry" in message and not message.startswith("model output:"):
+            note(f"Provider: {message}", style="yellow")
+
     if cfg.provider == "anthropic":
         base_url = cfg.base_url or ANTHROPIC_BASE_URL
         return AnthropicProvider(
@@ -39,6 +48,7 @@ def build_provider(cfg: RunConfig) -> AIProvider:
             base_url=base_url,
             timeout=timeout,
             attempts=attempts,
+            progress=progress,
         )
     base_url = cfg.base_url or DEFAULT_OPENAI_BASE_URL
     return OpenAICompatibleProvider(
@@ -47,4 +57,5 @@ def build_provider(cfg: RunConfig) -> AIProvider:
         base_url=base_url,
         timeout=timeout,
         attempts=attempts,
+        progress=progress,
     )
