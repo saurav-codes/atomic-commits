@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Mode = Literal["compact", "verbose"]
 FileStatus = Literal["modified", "added", "deleted", "renamed", "mode", "binary"]
@@ -113,6 +113,17 @@ class ExcludedChange(BaseModel):
 class CommitPlan(BaseModel):
     version: Literal["1"] = "1"
     mode: Mode = "compact"
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _coerce_version(cls, value: Any) -> Any:
+        # Models sometimes return the schema version as an integer (e.g. 1);
+        # normalize to the string literal the field expects.
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return str(value)
+        return value
     repo_fingerprint: str
     base_head: str
     groups: list[CommitGroup] = Field(default_factory=list)
