@@ -295,7 +295,11 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
     done = {a.group_id for a in store.load_apply_log(session_id) if a.status == "committed"}
     remaining_groups = [g for g in commit_plan.groups if g.group_id not in done]
     if not remaining_groups:
-        output.print_apply_result(store.load_apply_log(session_id), as_json=cfg.json_output)
+        output.print_apply_result(
+            store.load_apply_log(session_id),
+            planned_total=len(commit_plan.groups),
+            as_json=cfg.json_output,
+        )
         return
 
     # Do NOT compare against the original whole-repo fingerprint: once some
