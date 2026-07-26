@@ -114,14 +114,14 @@ def _confirm_now(cfg: RunConfig, n: int, messages: list[str]) -> bool:
         console.print(f"  {i}. {msg}")
     if not err_console.is_terminal:
         raise AtcError(
-            f"--now requires --yes (non-interactive terminal); pass --yes to "
+            f"committing requires --yes in a non-interactive terminal; pass --yes to "
             f"commit {n} proposed commit(s).",
         )
     return typer.confirm("Apply these commits?", default=False)
 
 
 def _append_trailers(plan: CommitPlan, trailers: list[str]) -> CommitPlan:
-    """Append trailer lines to each group message in place (4.6)."""
+    """Append trailer lines to each group message in place."""
     if not trailers:
         return plan
     block = "\n".join(trailers)
@@ -147,7 +147,7 @@ def _apply_with_trailers(
 
 
 def _sessions_data(store: SessionStore) -> list[Any]:
-    """Prefer rich session metadata when the store exposes it (3.7)."""
+    """Prefer rich session metadata when the store exposes it."""
     fn = getattr(store, "list_sessions_metadata", None)
     if callable(fn):
         try:
@@ -284,7 +284,7 @@ def main(
 
 
 def _print_token_usage(cfg: RunConfig) -> None:
-    """Print cumulative token usage at the end of a run (2.5). Skip --json."""
+    """Print cumulative token usage at the end of a run. Skip --json."""
     if cfg.json_output:
         return
     usage = get_total_usage()
@@ -349,7 +349,7 @@ def _run_default(
 
 
 def _run_rewrite(git: GitClient, cfg: RunConfig, trailers: list[str], *, squash: bool) -> None:
-    """Re-plan the last commit's diff and rewrite it (4.1).
+    """Re-plan the last commit's diff and rewrite it.
 
     Resets HEAD~1 (mixed, keeping changes in the worktree), then re-plans. With
     ``squash=False`` (``--amend``) the result is committed as atomic commits;
@@ -470,7 +470,7 @@ def commit_changes(
 
 @app.command()
 def plan(ctx: typer.Context) -> None:
-    """Build a dry-run plan without committing (the old default behavior).
+    """Build and save a plan without committing.
 
     Examples:
 
@@ -665,7 +665,7 @@ def undo(
     ctx: typer.Context,
     session_id: str = typer.Argument(..., help="Session id whose backup.patch to reverse."),
 ) -> None:
-    """Reverse a session's backup.patch via `git apply --reverse` (3.5).
+    """Reverse a session's backup.patch via `git apply --reverse`.
 
     Examples:
 
@@ -721,7 +721,7 @@ def selftest(
     seed: int = typer.Option(0, "--seed", help="Base seed for case generation."),
     live: bool = typer.Option(False, "--live", help="Use the configured live provider."),
 ) -> None:
-    """Run the deterministic self-test harness against the install (4.4).
+    """Run the deterministic self-test harness against the install.
 
     Examples:
 
@@ -796,7 +796,7 @@ def explain(
     group_id: str = typer.Argument(..., help="Group id to explain."),
     path: Path | None = typer.Argument(None, help="Saved plan file (defaults to the latest plan)."),
 ) -> None:
-    """Print the rationale and hunk diffs for one group from a saved plan (4.5).
+    """Print the rationale and hunk diffs for one group from a saved plan.
 
     Examples:
 
