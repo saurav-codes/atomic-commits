@@ -127,6 +127,20 @@ def prepare_hooks(git: GitClient, cfg: RunConfig) -> None:
         output.note("Hooks: no changed files to check", enabled=show)
         return
 
+    # Run formatters against the complete worktree view, not Git's partially
+    # staged view (which makes pre-commit stash the rest and can conflict with
+    # its own fixes). ATC will stage the planned groups again during apply.
+    if cfg.include_staged:
+        staged = set(git.cached_changed_paths())
+        staged_rename_sources = {
+            file_change.old_path
+            for file_change in snapshot.files
+            if file_change.status == "renamed"
+            and file_change.path in staged
+            and file_change.old_path
+        }
+        git.restore_staged(sorted((staged & set(paths)) | staged_rename_sources))
+
     for attempt in range(1, 4):
         with output.step(
             f"Running pre-commit once on {len(paths)} changed file(s)...", enabled=show,
