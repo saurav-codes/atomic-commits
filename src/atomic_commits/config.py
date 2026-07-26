@@ -70,7 +70,7 @@ class RunConfig:
     provider_timeout: float | None = None
 
     no_verify: bool = False
-    hook_mode: HookMode = "each"
+    hook_mode: HookMode = "once"
     yes: bool = False
     json_output: bool = False
     debug: bool = False
