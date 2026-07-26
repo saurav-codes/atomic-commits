@@ -229,8 +229,9 @@ def _apply_with_progress(
         planned_snapshot=planned_snapshot,
         show_progress=show,
     )
-    store.write_apply_log(session_id, prior + results)
-    return results
+    combined = prior + results
+    store.write_apply_log(session_id, combined)
+    return combined
 
 
 def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
