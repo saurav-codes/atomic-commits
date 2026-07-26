@@ -179,7 +179,7 @@ def _run_case(
     except (AtcError, OSError, subprocess.CalledProcessError) as exc:
         # Narrow on purpose: a repro harness should still surface real bugs in
         # itself (e.g. AttributeError, TypeError, KeyError) instead of masking
-        # them as a failed case. See IMPROVEMENTS.md item 5.7.
+        # them as a failed case.
         result.error = f"{type(exc).__name__}: {exc}"
         return result
 

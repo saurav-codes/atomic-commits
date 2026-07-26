@@ -1,4 +1,4 @@
-"""High-level flows and preflight (implementation.md sections 6, 7).
+"""High-level command flows and preflight checks.
 
 Ties scanning, planning, validation, session writing, and applying together so
 the CLI stays thin.
@@ -17,7 +17,8 @@ from .committer import Committer
 from .config import RunConfig, resolve_provider_credentials
 from .errors import FingerprintMismatchError, PreflightError
 from .git_client import GitClient
-from .models import CommitPlan
+from .models import AppliedCommit, CommitPlan, WorktreeSnapshot
+from .planner import ensure_applicable_plan
 from .planner import plan as run_planning
 from .providers import build_provider
 from .scanner import scan

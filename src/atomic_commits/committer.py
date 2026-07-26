@@ -1,4 +1,4 @@
-"""Committer: stage each group, commit, rescan (implementation.md sections 6.2, 17, 22)."""
+"""Committer: stage each group, commit, and rescan."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ class Committer:
                 record.status = "failed"
                 record.detail = str(exc)
                 results.append(record)
-                # Never leave staged changes behind (section 21). Unstage the
+                # Never leave staged changes behind. Unstage the
                 # paths we actually touched, falling back to the group's
                 # planned paths (derived from hunk_ids via planned_by_id) if
                 # staging failed before returning any — group.file_paths may

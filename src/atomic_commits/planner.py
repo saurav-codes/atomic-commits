@@ -1,4 +1,4 @@
-"""Map/reduce planning (implementation.md sections 13-15, 24).
+"""Adaptive direct and evidence-assisted planning.
 
 Builds a context pack, chunks diffs by a token budget (keeping hunks intact),
 runs the AI map phase per chunk and the reduce phase to produce a CommitPlan,
@@ -159,7 +159,7 @@ def chunk_hunks(
 
 
 # ---------------------------------------------------------------------------
-# Chunk-review cache (2.2)
+# Chunk-review cache
 # ---------------------------------------------------------------------------
 # Cache key: (chunk_id, sha256 of the chunk's hunk fingerprints). Stored as
 # JSON in the session dir so only changed chunks re-run after a plan-validation
@@ -241,9 +241,9 @@ def run_map(
     parallelism here). This turns a 15-hunk/1-chunk/90s serial wait into
     several small parallel calls whose total wall time ≈ the slowest one.
 
-    ``max_parallel`` caps the thread pool size (2.3). When None it defaults
+    ``max_parallel`` caps the thread pool size. When None it defaults
     to ``min(total, 8)`` preserving the prior behaviour. A ``snapshot`` +
-    ``session_dir`` pair enables the chunk-review cache (2.2): only chunks
+    ``session_dir`` pair enables the chunk-review cache: only chunks
     whose hunk fingerprints changed re-call the provider.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -315,7 +315,7 @@ def run_map(
 
 
 # ---------------------------------------------------------------------------
-# Hierarchical reduce (2.1)
+# Bounded lead reduction
 # ---------------------------------------------------------------------------
 # When the chunk-review set is too large to fit in a single reduce prompt we
 # reduce in batches, then reduce the reductions, always producing a CommitPlan.
@@ -711,7 +711,7 @@ def run_reduce(
 
 
 # ---------------------------------------------------------------------------
-# Commit-message template (4.2)
+# Commit-message template
 # ---------------------------------------------------------------------------
 # If cfg.message_template is set (CONTRACT from the config agent), fill the
 # ${scope}, ${verb}, ${object} placeholders from the AI-produced message and
@@ -862,6 +862,7 @@ def _request_plan(
             timeout=timeout,
             attempts=cfg.retry_attempts,
         )
+    output.note("Model output decoded; validating the plan", enabled=show_progress)
     return _parse_plan(raw, snapshot, cfg)
 
 

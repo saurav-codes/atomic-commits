@@ -1,7 +1,7 @@
 """Thin wrapper around the `git` CLI via subprocess.
 
 Git patch/staging semantics are exact and battle-tested, so atc shells out to
-`git` rather than depending on a heavy library (implementation.md section 4).
+`git` rather than depending on a heavy library.
 
 All commands run with the repo root as cwd. Binary-safe output is returned as
 bytes; text helpers decode as UTF-8 with surrogateescape so arbitrary bytes

@@ -101,12 +101,12 @@ def _doctor_diag(git: GitClient, cfg: RunConfig) -> list[tuple[str, bool]]:
 
 
 def _confirm_now(cfg: RunConfig, n: int, messages: list[str]) -> bool:
-    """Gate --now/--amend commits: require --yes, or prompt in non-json mode (3.1)."""
+    """Require --yes or an interactive confirmation before creating commits."""
     if cfg.yes:
         return True
     if cfg.json_output:
         raise AtcError(
-            f"--now requires --yes to commit {n} proposed commit(s); pass --yes "
+            f"committing requires --yes for {n} proposed commit(s) in JSON mode; pass --yes "
             "to proceed (or run without --json for an interactive prompt).",
         )
     console.print(f"[bold]Proposed commits ({n}):[/bold]")

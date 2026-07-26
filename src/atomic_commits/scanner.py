@@ -1,4 +1,4 @@
-"""Worktree scanning (implementation.md section 8).
+"""Worktree scanning and stable snapshot construction.
 
 Uses `git status --porcelain=v1 -z` as the source of truth, parses worktree
 (and optionally cached) diffs, synthesizes diffs for safe untracked files, and
@@ -219,5 +219,4 @@ def scan(git: GitClient, cfg: RunConfig) -> WorktreeSnapshot:
         files=files,
         fingerprint=fp,
     )
-
 
