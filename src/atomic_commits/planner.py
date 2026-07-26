@@ -872,7 +872,15 @@ def _validate(plan: CommitPlan, snapshot: WorktreeSnapshot, cfg: RunConfig) -> N
         hunk.hunk_id: hunk.file_path for file_change in files for hunk in file_change.hunks
     }
     errors = validate_plan(
-        plan, safe_hunk_ids=safe_ids, hunk_to_path=hunk_to_path, mode=cfg.mode
+        plan,
+        safe_hunk_ids=safe_ids,
+        hunk_to_path=hunk_to_path,
+        mode=cfg.mode,
+        indivisible_hunks_by_path={
+            file_change.path: {hunk.hunk_id for hunk in file_change.hunks}
+            for file_change in files
+            if file_change.status in {"deleted", "renamed", "mode"}
+        },
     )
     if errors:
         raise PlanValidationError("plan validation failed:\n  " + "\n  ".join(errors))
@@ -893,6 +901,11 @@ def _repair_plan_locally(
         for file_change in snapshot.files if file_change.safety.safe
         for hunk in file_change.hunks
     }
+    indivisible_by_hunk: dict[str, list[str]] = {}
+    for file_change in snapshot.files:
+        if file_change.safety.safe and file_change.status in {"deleted", "renamed", "mode"}:
+            file_hunks = [hunk.hunk_id for hunk in file_change.hunks]
+            indivisible_by_hunk.update({hunk_id: file_hunks for hunk_id in file_hunks})
     units = {unit.unit_id: unit for unit in graph.units}
     terms: dict[str, list[str]] = {}
     if isinstance(evidence, list):
@@ -926,10 +939,15 @@ def _repair_plan_locally(
     assigned: set[str] = set()
     group_ids: set[str] = set()
     for index, group in enumerate(repaired.groups, start=1):
-        hunk_ids = [
-            hunk_id for hunk_id in group.hunk_ids
-            if hunk_id in hunk_paths and hunk_id not in assigned
+        requested = [
+            related
+            for hunk_id in group.hunk_ids
+            for related in indivisible_by_hunk.get(hunk_id, [hunk_id])
         ]
+        hunk_ids = list(dict.fromkeys(
+            hunk_id for hunk_id in requested
+            if hunk_id in hunk_paths and hunk_id not in assigned
+        ))
         if not hunk_ids:
             continue
         assigned.update(hunk_ids)
@@ -993,6 +1011,23 @@ def _repair_plan_locally(
             excluded.reason = "Excluded by repository safety rules."
     repaired.warnings.append("ATC repaired model coverage and ordering locally.")
     return repaired
+
+
+def ensure_applicable_plan(
+    commit_plan: CommitPlan, snapshot: WorktreeSnapshot, cfg: RunConfig,
+) -> CommitPlan:
+    """Return a structurally valid plan, repairing saved/legacy plans locally."""
+    try:
+        _validate(commit_plan, snapshot, cfg)
+        return commit_plan
+    except PlanValidationError as exc:
+        if "whole-file change" not in str(exc):
+            return commit_plan
+        repaired = _repair_plan_locally(
+            commit_plan, snapshot, build_change_graph(snapshot), [],
+        )
+        _validate(repaired, snapshot, cfg)
+        return repaired
 
 
 def plan(
