@@ -127,147 +127,190 @@ With `--json`, global options must come before the subcommand. Bare
 | `atc selftest` | Exercise the deterministic local harness. |
 | `atc init` | Write provider config interactively and run diagnostics. |
 
-### `atc init` — config wizard
+Run `atc --help` or `atc COMMAND --help` for the complete option list.
 
-`atc init` walks you through first-time setup interactively: it prompts for your
-provider, model, base URL, and the env var that holds your API key, writes
-`~/.config/atc/config.toml`, and runs `atc doctor` to verify the result. Use it
-instead of hand-editing the config file on a fresh install.
+`doctor` is hermetic: it does not read config files, resolve provider defaults,
+or call a provider. `atc init` runs it immediately with the values entered in
+the wizard. For a later explicit check, pass the same global provider/model
+options before `doctor`.
 
-```bash
-atc init
-```
+## Common workflows
 
-### Validate setup
+### Limit the scope
 
-```bash
-atc doctor
-```
-
-## Quickstart
+`--paths` is repeatable and accepts files or directories relative to the
+repository root:
 
 ```bash
-atc              # plan, ask, then commit (the default one-command flow)
-atc --yes        # plan and commit without asking
-atc --verbose    # more detailed plan + commits
-atc plan         # dry-run plan only (no commits)
-atc apply        # apply the latest saved plan
-atc commit       # same as bare `atc`, but also runs pre-commit and includes staged changes
-atc commit --yes # plan + commit without asking, with pre-commit
+atc --paths src/atomic_commits --paths tests plan
 ```
 
-Bare `atc` is the opinionated one-command: it plans, shows the proposed
-commits, and commits them on confirmation. With `--json` and no `--yes` it
-emits the plan as JSON without committing. Use `atc plan` for the old dry-run
-behavior. `atc commit` adds pre-commit checks and includes already-staged
-changes; use `--hooks each` for custom or per-message workflows, or `--hooks
-skip` when checks already ran elsewhere.
+### Inspect before applying
 
-## How planning works
+```bash
+atc plan
+atc show-plan --show-diff
+atc explain group-id
+atc apply
+```
 
-1. Freeze one exact worktree snapshot.
-2. Split nearby unrelated edits into separately stageable changed regions.
-3. Build local facts about symbols, imports, tests, docs, migrations, and renames.
-4. Send ordinary changes to one full-change model request.
-5. For very large changes, gather evidence in parallel and give all notes to one lead planner.
-6. Review every group once to find more honest splits.
-7. Check exact coverage and order, then stage and commit each group.
+`atc apply` rescans the worktree and refuses the saved plan if its fingerprint
+no longer matches.
 
-No AI request runs while files are being edited. Unchanged planning results are cached,
-so a failed or interrupted command can reuse completed work.
+### Hook policy
 
-`--compact` and `--verbose` only control display detail. Both seek the greatest useful
-number of commits.
+```bash
+atc commit --hooks once   # default: run standard pre-commit once
+atc commit --hooks each   # let Git run hooks for every commit
+atc commit --hooks skip   # skip hooks
+```
 
-## Progress during long runs
+With `once`, `atc` recognizes a standard `pre-commit` generated hook and runs
+it against the changed safe files before planning. If a hook modifies files,
+it retries up to three times. Custom pre-commit hooks and active `commit-msg`
+hooks run through Git for every commit. `--no-verify` skips all hooks.
 
-Interactive runs show the frozen snapshot size, local links found, chosen plan method,
-estimated input size, elapsed request time, evidence progress, split review, validation,
-and commit progress. Provider calls share the total `--time-limit`; retries cannot silently
-multiply it into hours.
+### Rewrite the last commit
+
+```bash
+atc --amend          # re-plan HEAD's diff into atomic commits
+atc --squash         # re-plan HEAD's diff, then recreate one commit
+atc --amend --yes    # non-interactive rewrite
+```
+
+Both modes reset `HEAD~1` with a mixed reset and recreate the last commit's
+changes. They require a commit with a parent and always confirm unless `--yes`
+is supplied.
+
+### Add trailers or message templates
+
+```bash
+atc --trailer "Co-authored-by: A User <a@example.com>"
+atc --message-template '${scope}: ${verb} ${object}'
+```
+
+`--trailer` is repeatable. Templates support `${scope}`, `${verb}`, and
+`${object}` and can also be set per provider in the config file.
+
+### Resume or recover
+
+```bash
+atc sessions
+atc resume
+atc undo 20260726-120000-abcdef
+```
+
+Before applying a plan, `atc` stores a binary-safe worktree patch. `resume`
+checks that every remaining planned hunk still exists before continuing.
+`undo` runs `git apply --reverse` on the selected session backup; it does not
+reset commits that were already created.
+
+## What planning does
+
+```mermaid
+flowchart LR
+    A["Preflight"] --> B["Freeze worktree snapshot"]
+    B --> C["Safety filter + hunk fingerprints"]
+    C --> D["Local symbol/import/test graph"]
+    D --> E{"Full prompt fits?"}
+    E -- Yes --> F["One planning request"]
+    E -- No --> G["Parallel evidence requests"]
+    G --> H["Bounded lead planning"]
+    F --> I["Optional split review"]
+    H --> I
+    I --> J["Validate coverage, messages, dependencies"]
+    J --> K["Save plan"]
+    K --> L["Confirm"]
+    L --> M["Stage, commit, rescan per group"]
+```
+
+Planning results are content-addressed by the worktree fingerprint and relevant
+planner settings. Unchanged retries can reuse completed evidence and plans.
+
+On an interactive terminal, OpenAI-compatible providers show a rolling preview
+of the latest streamed model response in the live elapsed-time display. Each new
+fragment replaces the previous one, so long planning calls remain visibly active
+without filling terminal history. Retry and automatic recovery status appears in
+the same display. Anthropic shows lifecycle progress without a response preview;
+`--json` suppresses all interactive progress.
 
 ## Safety model
 
-`atc` never commits `.env`, ignored files, caches, or runtime artifacts. Binary files are refused by default. It uses no zero-context patches and makes no broad fallback commits.
+By default, `atc` excludes common secret, environment, VCS, dependency, cache,
+build, database, and log paths. Sample env files such as `.env.example` are
+allowed. Binary changes are rejected unless `--allow-binary` is set, and even
+then only known asset extensions are accepted.
 
-## Instruction files
+A repo-root `.atcallow` can override path denylisting with one glob per line:
 
-When planning, `atc` reads up to 4000 characters (total) from the following
-files in your repo root, in order, and sends the collected content to the
-provider as context so commit messages can follow your project's conventions:
-
-- `AGENTS.md`
-- `.cursorrules`
-- `CLAUDE.md`
-- `README.md`
-
-These are treated as untrusted content (never executed). If you do not want any
-of these files sent to the provider, opt out with:
-
-```bash
-atc --no-instructions
+```gitignore
+# Deliberate exceptions
+fixtures/example.key
+generated/reference/**
 ```
 
-## Recovery / resume
+Treat `.atcallow` as security-sensitive: it can permit paths that are denied by
+default. Git-ignored, untracked files are not discovered by the scanner.
 
-```bash
-atc resume       # resume latest interrupted session
-atc sessions     # list sessions
-atc undo <id>    # reverse a session's backup.patch (with confirmation)
+The apply path has four important guards:
+
+1. A saved plan must match the current worktree fingerprint.
+2. Every safe hunk must appear exactly once in the plan.
+3. Staging rematches planned content fingerprints and rejects extra paths.
+4. A failure unstages touched paths and stops; there is no broad fallback commit.
+
+## Repository instructions
+
+Unless `--no-instructions` is used, the planner sends at most 4,000 characters
+total from these repo-root files to the configured provider:
+
+1. `AGENTS.md`
+2. `.cursorrules`
+3. `CLAUDE.md`
+4. `README.md`
+
+They are context only and are never executed.
+
+## Session data
+
+Runtime state lives inside the target repository's Git directory:
+
+```text
+.git/atc/
+├── lock
+├── plan.json
+└── sessions/
+    ├── cache/
+    │   ├── chunk-*.json
+    │   └── plans/
+    └── <timestamp>-<random>/
+        ├── snapshot.json
+        ├── plan.json
+        ├── backup.patch
+        └── apply_log.json
 ```
 
-A `backup.patch` is written before applying, for manual recovery.
+Session writes are locked and JSON files are replaced atomically. Session and
+backup files are owner-readable only.
 
-## Examples
+## JSON output
 
-### `resume` — continue an interrupted apply
-
-```bash
-atc resume                 # resume the latest incomplete session
-atc resume --json          # machine-readable result on stdout
-```
-
-### `sessions` — inspect saved sessions
+Use `--json` before the subcommand:
 
 ```bash
-atc sessions               # list sessions with id, status, and commit count
+atc --json plan
+atc --json sessions
+atc --json show-plan
+atc --json explain group-id
 ```
 
-### `show-plan` — review a saved plan
-
-```bash
-atc show-plan              # pretty-print the latest saved plan
-atc show-plan path/to/plan.json   # pretty-print a specific plan file
-atc show-plan --json       # emit the raw plan JSON
-```
-
-### `init` — first-time setup wizard
-
-```bash
-atc init                   # prompt for provider/model/key, write config, run doctor
-```
-
-### `selftest` — validate your install and provider
-
-```bash
-atc selftest               # run the deterministic local harness
-atc selftest --cases 20 --seed 7   # reproduce a specific scenario
-atc selftest --live                # also exercise the configured provider
-```
-
-### `undo` — roll back a session
-
-```bash
-atc undo <session-id>      # reverse the session's backup.patch (prompts first)
-atc undo <session-id> --yes # skip the confirmation prompt
-```
-
-## Important
-
-`atc` commits locally only. It never pushes, never rewrites history, and never edits or formats your code.
+JSON mode suppresses interactive progress. Errors are emitted as JSON with a
+non-zero exit code. `atc init` is interactive and does not support JSON mode;
+destructive confirmation paths such as `undo` and history rewrites require
+`--yes` when JSON or a non-interactive terminal is used.
 
 ## Further reading
 
-- `docs/implementation.md` — full product spec and design.
-- `docs/operation.md` — build progress log.
-- `CHANGELOG.md` — notable behavior changes.
+- [Architecture and lifecycles](docs/architecture.md)
+- [Development and verification](docs/development.md)
+- [Changelog](CHANGELOG.md)
