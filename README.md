@@ -105,7 +105,9 @@ atc commit --yes     # same, without confirmation
 
 Bare `atc` rejects an already-staged index unless `--include-staged` is set.
 `atc commit` always includes staged and unstaged changes and defaults to
-`--hooks once`.
+`--hooks once`. Both workflows run a standard pre-commit installation once
+before planning, then skip it for each atomic commit so formatter fixes cannot
+collide with temporarily unstaged changes.
 
 With `--json`, global options must come before the subcommand. Bare
 `atc --json` prints the plan and does not commit unless `--yes` is also passed.
@@ -233,6 +235,11 @@ fragment replaces the previous one, so long planning calls remain visibly active
 without filling terminal history. Retry and automatic recovery status appears in
 the same display. Anthropic shows lifecycle progress without a response preview;
 `--json` suppresses all interactive progress.
+
+Parallel evidence and lead-planning counters update that same transient display
+instead of writing one line per completed request. Compact plans show commit
+subjects and at most five warnings; hunk IDs and rationales remain available in
+verbose mode, and the complete plan is always saved under `.git/atc/`.
 
 ## Safety model
 
