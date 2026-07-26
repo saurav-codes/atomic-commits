@@ -98,3 +98,30 @@ def test_stage_group_rejects_one_hunk_of_a_rename(git_repo):
 
     with pytest.raises(PatchApplyError, match="split across commit groups"):
         Stager(gc, include_staged=True).stage_group(group, snapshot, snapshot)
+
+
+def test_stage_group_rejects_renamed_file_changed_after_plan(git_repo):
+    lines = [f"line {index}" for index in range(20)]
+    (git_repo / "old.py").write_text("\n".join(lines) + "\n")
+    git(git_repo, "add", "old.py")
+    git(git_repo, "commit", "-q", "-m", "seed")
+    git(git_repo, "mv", "old.py", "new.py")
+    lines[2] = "planned change"
+    (git_repo / "new.py").write_text("\n".join(lines) + "\n")
+
+    cfg = make_cfg(git_repo, mode="compact", include_staged=True)
+    gc = GitClient(git_repo)
+    planned = scan(gc, cfg)
+    renamed = next(file_change for file_change in planned.files if file_change.status == "renamed")
+    group = CommitGroup(
+        group_id="g1",
+        message="refactor(core): rename module",
+        hunk_ids=[hunk.hunk_id for hunk in renamed.hunks],
+    )
+    git(git_repo, "reset", "-q", "HEAD", "--", "old.py", "new.py")
+    lines[2] = "different change"
+    (git_repo / "new.py").write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(PatchApplyError, match="no longer matches"):
+        Stager(gc, include_staged=True).stage_group(group, scan(gc, cfg), planned)
+    assert staged_paths(git_repo) == []
