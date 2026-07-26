@@ -206,6 +206,24 @@ def test_openai_provider_retries_empty_stop_response():
     assert "previous response was empty" in client.calls[1]["messages"][-1]["content"]
 
 
+def test_openai_provider_retries_invalid_json():
+    events = []
+    client = _StreamingClient([
+        [_chunk('{"broken":', "stop")],
+        [_chunk('{"ok":true}', "stop")],
+    ])
+    provider = OpenAICompatibleProvider(
+        api_key="test", model="test", base_url="http://x", progress=events.append,
+    )
+    provider.client = client
+
+    assert provider.complete_json(
+        system="system", user="user", schema_name="Test", max_tokens=1024, temperature=0,
+    ) == {"ok": True}
+    assert len(client.calls) == 2
+    assert any("invalid JSON; retrying" in event for event in events)
+
+
 def test_model_preview_containing_retry_stays_transient(monkeypatch):
     import atomic_commits.providers as providers
 
