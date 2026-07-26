@@ -186,9 +186,10 @@ def print_plan(
     for i, group in enumerate(plan.groups, start=1):
         risk_color = _RISK_COLOR.get(group.risk, "white")
         console.print(f"[bold {risk_color}]{i}. {group.message}[/bold {risk_color}]")
-        console.print(f"   Hunks: {', '.join(group.hunk_ids)}")
-        if group.rationale:
-            console.print(f"   Why: {group.rationale}")
+        if plan.mode == "verbose" or show_diff:
+            console.print(f"   Hunks: {', '.join(group.hunk_ids)}")
+            if group.rationale:
+                console.print(f"   Why: {group.rationale}")
         if show_diff:
             for hid in group.hunk_ids:
                 hunk = hunk_by_id.get(hid)
@@ -197,7 +198,8 @@ def print_plan(
                 console.print(f"   [dim]{escape(hunk.file_path)} {escape(hunk.header)}[/dim]")
                 for line in _hunk_diff_lines(hunk):
                     console.print(f"      {line}")
-        console.print()
+        if plan.mode == "verbose" or show_diff:
+            console.print()
 
     if plan.excluded:
         console.print("[yellow]Excluded:[/yellow]")
@@ -205,8 +207,11 @@ def print_plan(
             console.print(f"  - {e.path}: {e.reason}")
     if plan.warnings:
         console.print("[yellow]Warnings:[/yellow]")
-        for w in plan.warnings:
+        shown = plan.warnings if plan.mode == "verbose" else plan.warnings[:5]
+        for w in shown:
             console.print(f"  - {w}")
+        if len(shown) < len(plan.warnings):
+            console.print(f"  - +{len(plan.warnings) - len(shown)} more in the saved plan")
 
 
 def print_apply_progress(idx: int, total: int, group, sha: str) -> None:
