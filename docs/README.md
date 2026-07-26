@@ -1,12 +1,8 @@
-# `atc` documentation
+# atc docs
 
-- [User guide](../README.md) — installation, configuration, commands, safety,
-  recovery, and common workflows.
-- [Architecture and lifecycles](architecture.md) — module boundaries and the
-  scan, plan, apply, resume, hook, and rewrite flows.
-- [Development and verification](development.md) — local setup, checks, test
-  layout, and extension points.
-- [Changelog](../CHANGELOG.md) — released behavior changes.
+- [User guide](../README.md) — install, configure, commands, safety
+- [Architecture](architecture.md) — modules and how they fit
+- [Development](development.md) — setup, checks, tests
+- [Changelog](../CHANGELOG.md) — released changes
 
-The source code and tests are authoritative. These documents describe the
-current `0.2.5` codebase rather than a future implementation plan.
+Code is the source of truth. Docs describe the current `0.3.1` code.
