@@ -1,98 +1,131 @@
 # atc — Atomic Commits CLI
 
-`atc` turns one dirty Git worktree into the greatest useful number of meaningful,
-atomic commits. Local code analysis records symbols, tests, imports, and related
-changes without spending AI tokens. A strong model then makes the final commit plan.
+`atc` turns the safe changes in a dirty Git worktree into a reviewed sequence of
+meaningful, atomic commits. It freezes the current change set, builds a local
+change graph, asks an AI provider for a plan, validates exact hunk coverage, and
+then stages and commits one group at a time.
 
-> Status: under active construction. See `docs/implementation.md` for the full spec
-> and `docs/operation.md` for build progress.
+It commits locally only. It does not push, rewrite history unless explicitly
+asked, edit source files, or format code.
 
-## Why atomic commits
+## Requirements
 
-Small, behavior-scoped commits make history reviewable, bisectable, and revertible.
-`atc` keeps splitting while each result remains useful and complete. It never creates
-empty commits or arbitrary fragments just to raise the count.
+- Python 3.11 or newer
+- Git available on `PATH`
+- A repository with at least one commit
+- An OpenAI-compatible or Anthropic API key
 
 ## Install
+
+From a checkout with `pipx`:
 
 ```bash
 pipx install .
 atc --version
 ```
 
-## Provider setup
+From a checkout:
 
-`atc` supports two providers: `openai-compatible` (any OpenAI-compatible endpoint)
-and `anthropic`. Configuration is resolved in this order (highest first):
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+atc --version
+```
 
-1. CLI flags (`--model`, `--base-url`, `--api-key-env`, `--provider`)
+## Configure a provider
+
+The fastest setup is the interactive wizard:
+
+```bash
+atc init
+```
+
+`atc` supports `openai-compatible` and `anthropic`. Values are resolved in
+this order:
+
+1. CLI options
 2. Environment variables
-3. Config file (`.atc.toml` or `~/.config/atc/config.toml`) — see [Config file](#config-file)
-4. Built-in defaults (errors with a setup hint if a required value is missing)
+3. The first config file found: `./.atc.toml`, then
+   `~/.config/atc/config.toml`
+4. Built-in defaults
+
+A repo-local config therefore replaces, rather than merges with, the global
+config for that run.
 
 ### Environment variables
 
-OpenAI-compatible:
-
 ```bash
+# OpenAI-compatible
 export ATC_OPENAI_API_KEY=sk-...
-export ATC_OPENAI_BASE_URL=https://api.openai.com/v1
 export ATC_OPENAI_MODEL=gpt-4o-mini
-export ATC_TIME_LIMIT=600
-export ATC_FULL_CHANGE_LIMIT=120000
-```
+export ATC_OPENAI_BASE_URL=https://api.openai.com/v1
 
-Anthropic:
-
-```bash
+# Anthropic
 export ATC_ANTHROPIC_API_KEY=sk-ant-...
 export ATC_ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+export ATC_ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# Optional split-review default
+export ATC_REVIEW=true
 ```
+
+Planner limits and retry controls are exposed as global CLI options. The
+configuration resolver can also read `ATC_PROVIDER_TIMEOUT`,
+`ATC_RETRY_ATTEMPTS`, `ATC_FULL_CHANGE_LIMIT`, and `ATC_TIME_LIMIT` when its
+caller leaves those values unset; the CLI currently supplies the defaults
+shown by `atc --help`.
 
 ### Config file
 
-Instead of (or in addition to) environment variables, `atc` reads a TOML config
-file from the first of these locations that exists:
-
-- `.atc.toml` in the current working directory (repo-local), and
-- `~/.config/atc/config.toml` (user-global).
-
-The file has one top-level table per provider. Both the hyphenated and the
-underscored table names are accepted — `[openai-compatible]` and
-`[openai_compatible]` are equivalent, and likewise `[anthropic]`.
+Provider table names may use a hyphen or underscore. For example,
+`[openai-compatible]` and `[openai_compatible]` are equivalent.
 
 ```toml
-# ~/.config/atc/config.toml
 [openai-compatible]
 model = "gpt-4o-mini"
 base_url = "https://api.openai.com/v1"
-api_key = "sk-..."                 # inline key (prefer api_key_env for safety)
-api_key_env = "ATC_OPENAI_API_KEY"  # env var to read the key from
-message_template = "${scope}: ${verb} ${object}"  # optional commit-message template
-
-[anthropic]
-model = "claude-3-5-sonnet-latest"
-base_url = "https://api.anthropic.com"
-api_key_env = "ATC_ANTHROPIC_API_KEY"
+api_key_env = "ATC_OPENAI_API_KEY"
 message_template = "${scope}: ${verb} ${object}"
 ```
 
-Supported keys (each key is `snake_case` only; only the table name accepts both
-the hyphenated and underscored spellings):
+An `api_key` may be stored inline, but `api_key_env` is safer. Config files
+created by `atc init` are owner-readable only.
 
-| Key | Description |
-|-----|-------------|
-| `model` | Model name sent to the provider. |
-| `base_url` | Provider API base URL. OpenAI-compatible defaults to `https://api.openai.com/v1`; Anthropic defaults to `https://api.anthropic.com`. |
-| `api_key` | Inline API key. Avoid committing this to a repo; prefer `api_key_env`. |
-| `api_key_env` | Name of the environment variable holding the API key (e.g. `ATC_OPENAI_API_KEY`). |
-| `message_template` | Optional commit-message template; placeholders like `${scope}`, `${verb}`, `${object}` are filled by the planner. |
-| `time_limit` | Total planning time in seconds. Completed work is cached for retry. |
-| `full_change_limit` | Estimated input-token limit for using one full-change request. |
+## Quick start
 
-Repo-local `.atc.toml` overrides the user-global file. CLI flags override both.
-A malformed config file is reported with the file path and parse error rather
-than being silently ignored.
+```bash
+atc                 # plan, show the plan, confirm, and commit
+atc --yes           # plan and commit without confirmation
+atc plan            # save and display a plan without committing
+atc apply            # apply the latest saved plan
+atc commit           # include staged changes and run pre-commit once
+atc commit --yes     # same, without confirmation
+```
+
+Bare `atc` rejects an already-staged index unless `--include-staged` is set.
+`atc commit` always includes staged and unstaged changes and defaults to
+`--hooks once`.
+
+With `--json`, global options must come before the subcommand. Bare
+`atc --json` prints the plan and does not commit unless `--yes` is also passed.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `atc` | Plan, confirm, and apply the current safe changes. |
+| `atc plan` | Build and save a dry-run plan. |
+| `atc apply [PLAN_PATH]` | Apply the latest or a specified saved plan. |
+| `atc commit` | Include staged changes and handle hooks before planning. |
+| `atc doctor` | Locally check Git, current CLI provider/model/base URL values, and API-key environment presence. |
+| `atc sessions` | List session IDs, status, and commit counts. |
+| `atc show-plan [PATH]` | Render a saved plan; add `--show-diff` or `--json`. |
+| `atc explain GROUP_ID [PATH]` | Show one group's rationale and hunk diffs. |
+| `atc resume` | Continue the latest incomplete session. |
+| `atc undo SESSION_ID` | Reverse that session's `backup.patch`. |
+| `atc selftest` | Exercise the deterministic local harness. |
+| `atc init` | Write provider config interactively and run diagnostics. |
 
 ### `atc init` — config wizard
 

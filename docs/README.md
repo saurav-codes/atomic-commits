@@ -1,16 +1,12 @@
 # `atc` documentation
 
-Developer-facing documentation for the `atc` atomic-commits CLI.
+- [User guide](../README.md) — installation, configuration, commands, safety,
+  recovery, and common workflows.
+- [Architecture and lifecycles](architecture.md) — module boundaries and the
+  scan, plan, apply, resume, hook, and rewrite flows.
+- [Development and verification](development.md) — local setup, checks, test
+  layout, and extension points.
+- [Changelog](../CHANGELOG.md) — released behavior changes.
 
-- [`implementation.md`](./implementation.md) — full product spec and design:
-  product goals, v1 scope, repository layout, safety model, planning pipeline,
-  provider interface, and validation rules.
-- [`operation.md`](./operation.md) — build progress log mapping each stage to
-  the implementation order in `implementation.md`.
-
-For end-user usage, see the top-level [`README.md`](../README.md) and
-[`CHANGELOG.md`](../CHANGELOG.md).
-
-> The dev docs were relocated here from the project root so they no longer ship
-> in the installed wheel. Links elsewhere in the project refer to them as
-> `docs/implementation.md` and `docs/operation.md`.
+The source code and tests are authoritative. These documents describe the
+current `0.2.5` codebase rather than a future implementation plan.
