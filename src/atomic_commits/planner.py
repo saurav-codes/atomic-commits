@@ -308,9 +308,7 @@ def run_map(
                 reviews[idx] = future.result()
                 done += 1
                 if show_progress:
-                    output.err_console.print(
-                        f"[dim]  chunk {idx + 1}/{total} done ({done}/{total} complete)[/dim]"
-                    )
+                    output.live(f"evidence {done}/{total} complete (chunk {idx + 1})")
     return [r for r in reviews if r is not None]
 
 
@@ -649,10 +647,7 @@ def run_reduce(
                 planned_batches[index] = future.result()
                 done += 1
                 if show_progress:
-                    output.err_console.print(
-                        f"[dim]  plan batch {index + 1}/{total} done "
-                        f"({done}/{total} complete)[/dim]"
-                    )
+                    output.live(f"plan batches {done}/{total} complete (batch {index + 1})")
 
     combined = CommitPlan(
         mode=mode,
