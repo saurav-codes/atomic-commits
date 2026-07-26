@@ -1,4 +1,4 @@
-"""Commit-message validation (implementation.md section 16).
+"""Commit-message validation.
 
 Rule-based first. The planner is responsible for AI retry when a message is
 rejected; this module only judges a single message and returns reasons.

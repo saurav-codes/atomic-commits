@@ -1,4 +1,4 @@
-"""Session storage and resume support (implementation.md section 18).
+"""Session storage, caching, and resume support.
 
 Sessions live under .git/atc/sessions/<session_id>/ with a latest-plan pointer
 at .git/atc/plan.json.
@@ -49,8 +49,8 @@ class SessionStore:
     def _lock(self):
         """Hold an exclusive flock on .git/atc/lock for the duration of a write.
 
-        Prevents two concurrent `atc --apply` processes from interleaving
-        writes to session files and the latest-plan pointer (IMPROVEMENTS 1.8).
+        Prevents concurrent apply processes from interleaving writes to session
+        files and the latest-plan pointer.
         fcntl is Unix-only; the project targets mac/Linux.
         """
         self.root.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ class SessionStore:
         # an interruption never leaves a truncated JSON file that would brick
         # `atc resume` (the recovery command). Created with mode 0o600 so the
         # file is owner-only from the start (no world-readable window before
-        # chmod). IMPROVEMENTS 7.3.
+        # chmod).
         tmp = path.with_suffix(path.suffix + ".tmp")
         fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:

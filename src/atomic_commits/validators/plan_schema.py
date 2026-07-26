@@ -1,4 +1,4 @@
-"""Plan schema and semantic validation (implementation.md section 24).
+"""Plan schema and semantic validation.
 
 Checks that every safe hunk is assigned exactly once, no duplicates, excluded
 hunks have reasons, groups are non-empty with valid messages, and group file
@@ -17,6 +17,7 @@ def validate_plan(
     safe_hunk_ids: list[str],
     hunk_to_path: dict[str, str],
     mode: Mode,
+    indivisible_hunks_by_path: dict[str, set[str]] | None = None,
 ) -> list[str]:
     """Return a list of validation error strings. Empty means valid."""
     errors: list[str] = []
@@ -76,6 +77,21 @@ def validate_plan(
         if hid in seen:
             errors.append(f"hunk '{hid}' assigned to more than one group")
         seen.add(hid)
+
+    # Renames, deletions, and mode changes are staged as whole-file operations.
+    # Their hunks therefore cannot be spread across commits: the first commit
+    # would consume the path and make every later group impossible to stage.
+    for path, hunk_ids in (indivisible_hunks_by_path or {}).items():
+        owners = {
+            group.group_id
+            for group in plan.groups
+            if hunk_ids.intersection(group.hunk_ids)
+        }
+        if len(owners) > 1:
+            errors.append(
+                f"whole-file change '{path}' is split across groups: "
+                + ", ".join(sorted(owners))
+            )
 
     # Every safe hunk assigned exactly once.
     missing = safe_set - seen

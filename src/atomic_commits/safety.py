@@ -1,4 +1,4 @@
-"""Safety filtering for atc (implementation.md section 9).
+"""Safety filtering for paths and binary files.
 
 Safety must run before AI sees any content and before staging. This module
 classifies paths and content as safe/unsafe.

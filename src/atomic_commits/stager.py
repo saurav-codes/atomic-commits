@@ -1,4 +1,4 @@
-"""Conservative hunk staging (implementation.md section 17)."""
+"""Conservative, fingerprint-matched hunk staging."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class Stager:
         whole_file_new: set[str] = set()
         whole_file_delete: set[str] = set()
         whole_file_mode: set[str] = set()
-        whole_file_rename: list[tuple[str, str]] = []
+        whole_file_rename: set[tuple[str, str]] = set()
 
         planned_by_id = {
             h.hunk_id: (f, h)
@@ -52,7 +52,15 @@ class Stager:
             if fc.status == "mode":
                 whole_file_mode.add(fc.path)
             if fc.status == "renamed" and fc.old_path:
-                whole_file_rename.append((fc.old_path, fc.path))
+                whole_file_rename.add((fc.old_path, fc.path))
+
+        group_hunks = set(group.hunk_ids)
+        for path in whole_file_delete | whole_file_mode | {new for _, new in whole_file_rename}:
+            file_hunks = {h.hunk_id for h in planned_file_by_path[path].hunks}
+            if not file_hunks.issubset(group_hunks):
+                raise PatchApplyError(
+                    f"whole-file change '{path}' is split across commit groups"
+                )
 
         staged_paths: list[str] = []
 
@@ -69,7 +77,7 @@ class Stager:
         for path in whole_file_delete:
             self.git.rm_cached(path)
             staged_paths.append(path)
-        for old_path, new_path in whole_file_rename:
+        for old_path, new_path in sorted(whole_file_rename):
             self.git.add_all_paths([old_path, new_path])
             staged_paths.append(new_path)
         for path in whole_file_mode:
