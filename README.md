@@ -8,6 +8,12 @@ stages and commits one group at a time.
 It only commits locally. It does not push, rewrite history unless asked, edit
 source, or format code.
 
+## Demo
+
+Watch `atc` turn a dirty worktree into reviewed atomic commits:
+
+<https://x.com/saurav__codes/status/2081345535701877241>
+
 ## Requirements
 
 - Python 3.11 or newer
