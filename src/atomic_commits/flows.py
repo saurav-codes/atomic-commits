@@ -311,10 +311,32 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         snapshot = scan(git, cfg)
     reference_snapshot = planned_snapshot or snapshot
     present_fps = {h.fingerprint for f in snapshot.files if f.safety.safe for h in f.hunks}
+    present_changes = {
+        (tuple(h.removed), tuple(h.added))
+        for f in snapshot.files if f.safety.safe
+        for h in f.hunks
+    }
     planned_fps = {
         h.hunk_id: h.fingerprint
         for f in reference_snapshot.files
         if f.safety.safe
+        for h in f.hunks
+    }
+    planned_changes = {
+        h.hunk_id: (tuple(h.removed), tuple(h.added))
+        for f in reference_snapshot.files
+        if f.safety.safe
+        for h in f.hunks
+    }
+    current_status = {f.path: f.status for f in snapshot.files if f.safety.safe}
+    reclassified_rename_hunks = {
+        h.hunk_id
+        for f in reference_snapshot.files
+        if f.safety.safe
+        and f.status == "renamed"
+        and f.old_path
+        and current_status.get(f.path) == "added"
+        and current_status.get(f.old_path) == "deleted"
         for h in f.hunks
     }
     missing = [
@@ -322,6 +344,8 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         for g in remaining_groups
         for hid in g.hunk_ids
         if planned_fps.get(hid) not in present_fps
+        and planned_changes.get(hid) not in present_changes
+        and hid not in reclassified_rename_hunks
     ]
     untouched_head = not done and git.head_sha() == commit_plan.base_head
     if missing and not untouched_head:
