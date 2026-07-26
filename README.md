@@ -17,8 +17,6 @@ source, or format code.
 
 ## Install
 
-From a checkout with `pipx`:
-
 ```bash
 pipx install .
 atc --version
@@ -107,30 +105,29 @@ plan and does not commit unless `--yes` is also set.
 
 | Command | Purpose |
 |---|---|
-| `atc` | Plan, confirm, and apply the current safe changes. |
-| `atc plan` | Build and save a dry-run plan. |
-| `atc apply [PLAN_PATH]` | Apply the latest or a specified saved plan. |
-| `atc commit` | Include staged changes and handle hooks before planning. |
-| `atc doctor` | Locally check Git, current CLI provider/model/base URL values, and API-key environment presence. |
+| `atc` | Plan, confirm, and commit safe changes. |
+| `atc plan` | Build and save a plan. |
+| `atc apply [PLAN_PATH]` | Apply the latest or a given saved plan. |
+| `atc commit` | Include staged changes and run hooks before planning. |
+| `atc doctor` | Local check of git, provider, model, base URL, and API-key env presence. |
 | `atc sessions` | List session IDs, status, and commit counts. |
-| `atc show-plan [PATH]` | Render a saved plan; add `--show-diff` or `--json`. |
+| `atc show-plan [PATH]` | Render a saved plan. Add `--show-diff` or `--json`. |
 | `atc explain GROUP_ID [PATH]` | Show one group's rationale and hunk diffs. |
 | `atc resume` | Continue the latest incomplete session. |
 | `atc undo SESSION_ID` | Reverse that session's `backup.patch`. |
-| `atc selftest` | Exercise the deterministic local harness. |
-| `atc init` | Write provider config interactively and run diagnostics. |
+| `atc selftest` | Run the deterministic local harness. |
+| `atc init` | Write provider config interactively and run doctor. |
 
 Run `atc --help` or `atc COMMAND --help` for the full option list.
 
 `doctor` is hermetic: it never reads config files or calls a provider. `atc init`
 runs it with the values just entered.
 
-## Common workflows
+## Workflows
 
-### Limit the scope
+### Limit scope
 
-`--paths` is repeatable and accepts files or directories relative to the
-repository root:
+`--paths` is repeatable and takes files or dirs relative to the repo root:
 
 ```bash
 atc --paths src/atomic_commits --paths tests plan
@@ -147,7 +144,7 @@ atc apply
 
 `atc apply` rescans and refuses a saved plan whose fingerprint no longer matches.
 
-### Hook policy
+### Hooks
 
 ```bash
 atc commit --hooks once   # default: run standard pre-commit once
