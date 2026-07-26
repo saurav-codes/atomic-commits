@@ -67,6 +67,24 @@ def test_planner_repairs_invalid_plan_once(git_repo):
     assert provider.calls == ["CommitPlan", "CommitPlan"]
 
 
+def test_commit_plan_coerces_integer_version():
+    """Models sometimes return the schema version as an integer (1) not "1".
+
+    Pydantic's Literal["1"] rejects the int under strict coercion, so normalize
+    before validation to avoid a spurious "invalid commit plan" failure.
+    """
+    plan = CommitPlan(
+        version=1,
+        mode="compact",
+        repo_fingerprint="fp",
+        base_head="deadbeef",
+        groups=[],
+        excluded=[],
+        warnings=[],
+    )
+    assert plan.version == "1"
+
+
 def test_apply_message_template_strips_leading_whitespace_subject():
     """Leading whitespace on the AI message must not corrupt the body.
 
