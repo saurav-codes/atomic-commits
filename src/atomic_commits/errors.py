@@ -1,7 +1,7 @@
 """Typed errors for atc.
 
 Every error must be actionable. Where possible, include a `hint` describing
-what the user should do next. See implementation.md section 21.
+what the user should do next.
 """
 
 from __future__ import annotations

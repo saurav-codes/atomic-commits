@@ -1,6 +1,6 @@
 """Pydantic data models for atc.
 
-See implementation.md sections 10, 13, and 24.
+These models are the contracts between scanning, planning, persistence, and apply.
 """
 
 from __future__ import annotations

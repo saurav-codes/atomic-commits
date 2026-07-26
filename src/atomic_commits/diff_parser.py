@@ -1,4 +1,4 @@
-"""Unified-diff parser (implementation.md section 11).
+"""Unified-diff parser.
 
 Parses `git diff` patch output into FileChange/Hunk models. Supports modified,
 added, deleted, renamed, mode-only, and binary files, quoted paths, files with

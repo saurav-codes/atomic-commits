@@ -1,6 +1,6 @@
 """Configuration resolution for atc.
 
-Priority (implementation.md section 12.3):
+Resolution priority:
 1. CLI flags
 2. Environment variables
 3. Config file (.atc.toml or ~/.config/atc/config.toml)
@@ -78,10 +78,10 @@ class RunConfig:
     # Optional commit-message template; the planner fills ${scope}, ${verb}, ${object}.
     message_template: str | None = None
 
-    # Caps the planner's per-run thread pool (2.3). None lets the planner pick.
+    # Caps the planner's per-run thread pool. None lets the planner pick.
     max_parallel: int | None = None
 
-    # Per-request retry count for provider HTTP calls (1.5). ``None`` means
+    # Per-request retry count for provider HTTP calls. ``None`` means
     # "not set by the caller"; resolved to the default in
     # ``resolve_provider_credentials``.
     retry_attempts: int | None = None
