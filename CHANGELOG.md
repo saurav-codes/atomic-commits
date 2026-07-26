@@ -3,6 +3,39 @@
 Notable user-visible changes are recorded here. The project follows Semantic
 Versioning and the structure of Keep a Changelog.
 
+## [0.3.1] - 2026-07-26
+
+### Added
+
+- Durable apply progress and resume recovery: each successful commit is recorded
+  so an interrupted run can continue the remaining groups.
+- Local plan repair splits indivisible hunks and removes duplicate groups
+  before applying.
+- Provider retries automatically on malformed streamed JSON before raising.
+- Compact plan output hides hunk IDs and rationale; verbose mode still shows
+  them.
+
+### Changed
+
+- Default hook mode is now `once` (was `each`). Standard pre-commit runs once
+  before planning and the result is reused for every atomic commit.
+- `atc commit` and the default flow restore staged files before running
+  pre-commit so formatters see the full worktree.
+- OpenAI-compatible provider migrated to the official SDK with streaming; a
+  transient live display replaces the spinner and chunk/batch counters.
+- Apply failure now reports the real planned total and advises `atc resume`.
+- Progress callbacks are wired through the provider factory and prompts.
+
+### Fixed
+
+- Stager rejects a rename when the file content changed after the plan was
+  saved, instead of silently staging the old shape.
+- Stager rejects whole-file-split changes that the plan did not authorize.
+- `_apply_with_progress` returns the combined prior-plus-new results so
+  `resume` keeps already-committed groups.
+- Resume skips missing hunks when the content is unchanged and Git reclassified
+  a rename as a deletion plus addition.
+
 ## [0.2.5] - 2026-07-26
 
 ### Added
