@@ -183,6 +183,41 @@ def dry_run(git: GitClient, cfg: RunConfig) -> CommitPlan:
     return _build_plan(git, cfg, store, session_id)
 
 
+def _apply_with_progress(
+    git: GitClient,
+    cfg: RunConfig,
+    store: SessionStore,
+    session_id: str,
+    commit_plan: CommitPlan,
+    *,
+    prior: list[AppliedCommit] | None = None,
+    planned_snapshot: WorktreeSnapshot | None = None,
+    show: bool,
+) -> list[AppliedCommit]:
+    """Apply while durably recording each successful commit for crash recovery."""
+    prior = prior or []
+    progress = list(prior)
+
+    def on_event(index: int, total: int, group, sha: str) -> None:
+        progress.append(AppliedCommit(
+            group_id=group.group_id,
+            message=group.message,
+            sha=sha,
+            status="committed",
+        ))
+        store.write_apply_log(session_id, progress)
+        output.print_apply_progress(index, total, group, sha)
+
+    results = Committer(git, cfg).apply(
+        commit_plan,
+        on_event=on_event,
+        planned_snapshot=planned_snapshot,
+        show_progress=show,
+    )
+    store.write_apply_log(session_id, prior + results)
+    return results
+
+
 def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
     """Apply a previously saved plan (`atc apply`)."""
     preflight(git, cfg)
@@ -201,20 +236,21 @@ def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
             "worktree no longer matches the saved plan",
             hint="Rerun `atc` to create a fresh plan.",
         )
+    repaired = ensure_applicable_plan(commit_plan, snapshot, cfg)
+    if repaired != commit_plan:
+        output.note("Repaired saved plan locally", enabled=show, style="yellow")
+        commit_plan = repaired
     session_id = store.create()
     store.write_plan(session_id, commit_plan)
     store.write_snapshot(session_id, snapshot)
     store.write_backup(session_id, git.backup_patch())
-    committer = Committer(git, cfg)
-    results = committer.apply(
-        commit_plan, on_event=output.print_apply_progress, show_progress=show
+    results = _apply_with_progress(
+        git, cfg, store, session_id, commit_plan, show=show,
     )
-    store.write_apply_log(session_id, results)
     output.print_apply_result(results, as_json=cfg.json_output)
 
 
 def resume(git: GitClient, cfg: RunConfig) -> None:
-    preflight(git, cfg)
     show = not cfg.json_output
     store = SessionStore(git)
     session_id = store.latest_incomplete_session()
@@ -222,6 +258,17 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         raise PreflightError("no incomplete session to resume")
     commit_plan = store.load_plan_file(store.session_path(session_id) / "plan.json")
     planned_snapshot = store.load_snapshot(session_id)
+    if planned_snapshot is not None and any(
+        entry.xy[:1] not in {"", " ", "?"} for entry in planned_snapshot.status_entries
+    ):
+        cfg.include_staged = True
+    preflight(git, cfg)
+    if planned_snapshot is not None:
+        repaired = ensure_applicable_plan(commit_plan, planned_snapshot, cfg)
+        if repaired != commit_plan:
+            output.note("Repaired interrupted plan locally", enabled=show, style="yellow")
+            commit_plan = repaired
+            store.write_plan(session_id, commit_plan)
 
     done = {a.group_id for a in store.load_apply_log(session_id) if a.status == "committed"}
     remaining_groups = [g for g in commit_plan.groups if g.group_id not in done]
@@ -250,11 +297,18 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         for hid in g.hunk_ids
         if planned_fps.get(hid) not in present_fps
     ]
-    if missing:
+    untouched_head = not done and git.head_sha() == commit_plan.base_head
+    if missing and not untouched_head:
         raise FingerprintMismatchError(
             "worktree changed since the session was created; "
             f"{len(missing)} planned hunk(s) no longer match",
             hint="Rerun `atc` to create a fresh plan.",
+        )
+    if missing:
+        output.note(
+            "Recovering index state left by the interrupted apply",
+            enabled=show,
+            style="yellow",
         )
 
     remaining = CommitPlan(
@@ -266,13 +320,16 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         excluded=commit_plan.excluded,
         warnings=commit_plan.warnings,
     )
-    store.write_backup(session_id, git.backup_patch())
-    committer = Committer(git, cfg)
-    results = committer.apply(
-        remaining, on_event=output.print_apply_progress, planned_snapshot=planned_snapshot,
-        show_progress=show,
-    )
-    # Merge new results with previously-committed ones for an accurate log.
     prior = [a for a in store.load_apply_log(session_id) if a.group_id in done]
-    store.write_apply_log(session_id, prior + results)
+    store.write_backup(session_id, git.backup_patch())
+    results = _apply_with_progress(
+        git,
+        cfg,
+        store,
+        session_id,
+        remaining,
+        prior=prior,
+        planned_snapshot=planned_snapshot,
+        show=show,
+    )
     output.print_apply_result(results, as_json=cfg.json_output)
