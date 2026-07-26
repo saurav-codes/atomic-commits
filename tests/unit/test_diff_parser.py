@@ -1,5 +1,4 @@
-from atomic_commits.diff_parser import parse_patch, build_patch_for_hunks
-
+from atomic_commits.diff_parser import build_patch_for_hunks, parse_patch
 
 MODIFIED = """diff --git a/foo.py b/foo.py
 index 111..222 100644
@@ -136,6 +135,28 @@ def test_no_newline_marker_ignored():
     hunk = files[0].hunks[0]
     assert hunk.removed == ["old"]
     assert hunk.added == ["new"]
+
+
+def test_nearby_independent_edits_become_separate_regions():
+    patch = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,7 +1,7 @@
+-old_first = 1
++new_first = 1
+ keep_one = 1
+ keep_two = 2
+ keep_three = 3
+-old_second = 2
++new_second = 2
+ keep_four = 4
+"""
+    hunks = parse_patch(patch)[0].hunks
+    assert [h.hunk_id for h in hunks] == ["app.py::hunk::1.1", "app.py::hunk::1.2"]
+    assert hunks[0].removed == ["old_first = 1"]
+    assert hunks[1].removed == ["old_second = 2"]
+    assert hunks[0].old_start + hunks[0].old_count <= hunks[1].old_start
+    assert hunks[0].new_start + hunks[0].new_count <= hunks[1].new_start
 
 
 def test_build_patch_round_trip():

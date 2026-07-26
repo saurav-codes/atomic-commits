@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import random
 import shutil
@@ -16,10 +15,17 @@ from typing import Any
 from . import planner
 from .committer import Committer
 from .config import RunConfig, resolve_provider_credentials
+from .errors import AtcError
 from .flows import preflight
 from .git_client import GitClient
 from .providers import build_provider
 from .scanner import scan
+
+__all__ = ["run_selftest", "SelfTestAssertionError"]
+
+
+class SelfTestAssertionError(AtcError):
+    """Raised when a self-test case fails an internal assertion about its own result."""
 
 
 @dataclass
@@ -44,8 +50,9 @@ class SelfTestSummary:
 class DeterministicProvider:
     """Offline provider that creates one commit per safe hunk."""
 
-    async def complete_json(
-        self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float
+    def complete_json(
+        self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float,
+        timeout: float | None = None, attempts: int | None = None,
     ) -> dict[str, Any]:
         payload = json.loads(user)
         if schema_name == "ChunkReview":
@@ -53,13 +60,12 @@ class DeterministicProvider:
                 "chunk_id": payload["chunk_id"],
                 "summary": "self-test review",
                 "detected_concerns": [],
-                "suggested_groups": [],
                 "risky_hunks": [],
                 "message_terms": {},
             }
 
         groups = []
-        for idx, hunk in enumerate(payload["context"]["hunk_inventory"], start=1):
+        for idx, hunk in enumerate(payload["hunk_inventory"], start=1):
             path = hunk["file_path"]
             stem = Path(path).stem.replace(" ", "-")[:24] or "file"
             groups.append(
@@ -139,7 +145,12 @@ def _run_case(
             api_key=cfg_template.api_key,
             max_chunk_tokens=cfg_template.max_chunk_tokens,
             max_reducer_tokens=cfg_template.max_reducer_tokens,
+            direct_max_tokens=cfg_template.direct_max_tokens,
             temperature=cfg_template.temperature,
+            provider_timeout=cfg_template.provider_timeout,
+            retry_attempts=cfg_template.retry_attempts,
+            deadline=cfg_template.deadline,
+            review_plan=cfg_template.review_plan,
             no_verify=cfg_template.no_verify,
             json_output=cfg_template.json_output,
             debug=cfg_template.debug,
@@ -148,24 +159,27 @@ def _run_case(
         preflight(git, cfg)
         snapshot = scan(git, cfg)
         provider = build_provider(resolve_provider_credentials(cfg)) if live else DeterministicProvider()
-        plan = asyncio.run(planner.plan(provider, git, snapshot, cfg))
+        plan = planner.plan(provider, git, snapshot, cfg)
         result.planned_commits = len(plan.groups)
         applied = Committer(git, cfg).apply(plan)
         result.committed = sum(1 for item in applied if item.status == "committed")
 
         failed = [item for item in applied if item.status != "committed"]
         if failed:
-            raise RuntimeError(f"apply failed: {failed[0].detail}")
+            raise SelfTestAssertionError(f"apply failed: {failed[0].detail}")
         if result.committed != result.planned_commits:
-            raise RuntimeError("not every planned commit was applied")
+            raise SelfTestAssertionError("not every planned commit was applied")
         if _status(repo):
-            raise RuntimeError(f"worktree not clean: {_status(repo)}")
+            raise SelfTestAssertionError(f"worktree not clean: {_status(repo)}")
         if _tree_snapshot(repo) != expected_tree:
-            raise RuntimeError("final worktree does not match generated dirty tree")
+            raise SelfTestAssertionError("final worktree does not match generated dirty tree")
 
         result.status = "passed"
         return result
-    except Exception as exc:  # noqa: BLE001 - this is a repro harness.
+    except (AtcError, OSError, subprocess.CalledProcessError) as exc:
+        # Narrow on purpose: a repro harness should still surface real bugs in
+        # itself (e.g. AttributeError, TypeError, KeyError) instead of masking
+        # them as a failed case. See IMPROVEMENTS.md item 5.7.
         result.error = f"{type(exc).__name__}: {exc}"
         return result
 

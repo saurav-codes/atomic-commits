@@ -1,4 +1,3 @@
-import subprocess
 
 from atomic_commits.git_client import GitClient
 from atomic_commits.scanner import scan

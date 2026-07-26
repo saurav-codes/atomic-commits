@@ -1,8 +1,7 @@
-from atomic_commits.config import RunConfig
 from atomic_commits.git_client import GitClient
 from atomic_commits.scanner import scan
 
-from .helpers import git, make_cfg
+from .helpers import make_cfg
 
 
 def test_binary_refused_by_default(git_repo):

@@ -36,8 +36,9 @@ class MockProvider:
         self.mode = mode
         self.calls: list[str] = []
 
-    async def complete_json(
-        self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float
+    def complete_json(
+        self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float,
+        timeout: float | None = None, attempts: int | None = None,
     ) -> dict[str, Any]:
         self.calls.append(schema_name)
         import json
@@ -48,12 +49,11 @@ class MockProvider:
                 "chunk_id": payload["chunk_id"],
                 "summary": "mock review",
                 "detected_concerns": [],
-                "suggested_groups": [],
                 "risky_hunks": [],
                 "message_terms": {},
             }
         # CommitPlan: one group per hunk in the inventory.
-        inventory = payload["context"]["hunk_inventory"]
+        inventory = payload["hunk_inventory"]
         groups = []
         for i, h in enumerate(inventory, start=1):
             groups.append(

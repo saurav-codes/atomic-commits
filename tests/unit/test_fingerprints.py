@@ -1,8 +1,4 @@
-from atomic_commits.fingerprints import (
-    content_hash,
-    hunk_fingerprint,
-    worktree_fingerprint,
-)
+from atomic_commits.fingerprints import hunk_fingerprint, worktree_fingerprint
 
 
 def _fp(added, removed=None, path="a.py", header="@@ -1,2 +1,3 @@", before=None):
@@ -48,6 +44,3 @@ def test_worktree_fingerprint_order_independent():
     )
     assert fp1 == fp2
 
-
-def test_content_hash_stable():
-    assert content_hash(b"hello") == content_hash(b"hello")

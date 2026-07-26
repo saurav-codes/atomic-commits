@@ -29,12 +29,6 @@ class PreflightError(AtcError):
     exit_code = 2
 
 
-class UnsafeFileError(AtcError):
-    """A file was rejected by safety filtering."""
-
-    exit_code = 3
-
-
 class ProviderError(AtcError):
     """AI provider transport/auth/config failure."""
 

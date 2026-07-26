@@ -1,23 +1,11 @@
-"""Conservative hunk staging (implementation.md section 17).
-
-For each group: recompute the current diff, rematch planned hunk fingerprints,
-build a minimal patch, check then apply it to the index, verify the staged diff
-contains only planned paths, and never use zero-context patches.
-"""
+"""Conservative hunk staging (implementation.md section 17)."""
 
 from __future__ import annotations
 
 from . import diff_parser
 from .errors import PatchApplyError
 from .git_client import GitClient
-from .models import CommitGroup, FileChange
-from .scanner import safe_files
-
-
-def _index_current_files(git: GitClient, include_staged: bool) -> dict[str, FileChange]:
-    patch = git.diff_worktree()
-    files = diff_parser.parse_patch(patch, is_tracked=True)
-    return {f.path: f for f in files}
+from .models import CommitGroup
 
 
 class Stager:
@@ -32,7 +20,8 @@ class Stager:
         sequence after earlier commits have changed line numbers.
         """
         planned_snapshot = planned_snapshot or snapshot
-        wanted_fps: set[str] = set()
+        wanted_fps: dict[str, set[str]] = {}
+        wanted_changes: dict[str, set[tuple[tuple[str, ...], tuple[str, ...]]]] = {}
         wanted_paths: set[str] = set()
         whole_file_new: set[str] = set()
         whole_file_delete: set[str] = set()
@@ -41,17 +30,20 @@ class Stager:
 
         planned_by_id = {
             h.hunk_id: (f, h)
-            for f in safe_files(planned_snapshot)
+            for f in planned_snapshot.files if f.safety.safe
             for h in f.hunks
         }
-        file_by_path = {f.path: f for f in safe_files(snapshot)}
-        planned_file_by_path = {f.path: f for f in safe_files(planned_snapshot)}
+        file_by_path = {f.path: f for f in snapshot.files if f.safety.safe}
+        planned_file_by_path = {f.path: f for f in planned_snapshot.files if f.safety.safe}
 
         for hid in group.hunk_ids:
             if hid not in planned_by_id:
                 raise PatchApplyError(f"planned hunk '{hid}' not found in planned snapshot")
             fc, hunk = planned_by_id[hid]
-            wanted_fps.add(hunk.fingerprint)
+            wanted_fps.setdefault(fc.path, set()).add(hunk.fingerprint)
+            wanted_changes.setdefault(fc.path, set()).add(
+                (tuple(hunk.removed), tuple(hunk.added))
+            )
             wanted_paths.add(fc.path)
             if fc.status == "added":
                 whole_file_new.add(fc.path)
@@ -85,7 +77,8 @@ class Stager:
             staged_paths.append(path)
 
         # Patch-stage remaining hunks per file.
-        current = _index_current_files(self.git, self.include_staged)
+        raw = self.git.diff_worktree()
+        current = {f.path: f for f in diff_parser.parse_patch(raw, is_tracked=True)}
         for path in wanted_paths:
             if path in whole_file_delete or path in whole_file_mode:
                 continue
@@ -94,7 +87,11 @@ class Stager:
             cur_fc = current.get(path) or file_by_path.get(path)
             if cur_fc is None:
                 raise PatchApplyError(f"file '{path}' no longer present for staging")
-            matched = [h for h in cur_fc.hunks if h.fingerprint in wanted_fps]
+            matched = [
+                h for h in cur_fc.hunks
+                if h.fingerprint in wanted_fps.get(path, set())
+                or (tuple(h.removed), tuple(h.added)) in wanted_changes.get(path, set())
+            ]
             if not matched:
                 # New file added via intent-to-add: re-derive hunks from no-index diff.
                 if path in whole_file_new:
@@ -105,8 +102,10 @@ class Stager:
                         cur_fc.status = "added"
                         matched = [
                             h for h in cur_fc.hunks
-                            if h.fingerprint in wanted_fps
-                        ] or cur_fc.hunks
+                            if h.fingerprint in wanted_fps.get(path, set())
+                            or (tuple(h.removed), tuple(h.added))
+                            in wanted_changes.get(path, set())
+                        ]
                 if not matched:
                     raise PatchApplyError(
                         f"planned hunk(s) for '{path}' no longer match the worktree"

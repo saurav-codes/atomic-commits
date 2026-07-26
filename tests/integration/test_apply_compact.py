@@ -1,8 +1,7 @@
-import asyncio
 
+from atomic_commits import planner
 from atomic_commits.committer import Committer
 from atomic_commits.git_client import GitClient
-from atomic_commits import planner
 from atomic_commits.scanner import scan
 
 from .helpers import commit_count, git, make_cfg
@@ -18,7 +17,7 @@ def test_apply_compact_clears_worktree(git_repo, mock_provider):
     gc = GitClient(git_repo)
     before = commit_count(git_repo)
     snapshot = scan(gc, cfg)
-    plan = asyncio.run(planner.plan(mock_provider, gc, snapshot, cfg))
+    plan = planner.plan(mock_provider, gc, snapshot, cfg)
     results = Committer(gc, cfg).apply(plan)
 
     assert all(r.status == "committed" for r in results)

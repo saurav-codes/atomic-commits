@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from ..config import RunConfig
+from ..config import (
+    ANTHROPIC_BASE_URL,
+    DEFAULT_OPENAI_BASE_URL,
+    DEFAULT_PROVIDER_TIMEOUT,
+    DEFAULT_RETRY_ATTEMPTS,
+    RunConfig,
+)
 from ..errors import ProviderError
 from .anthropic import AnthropicProvider
 from .base import AIProvider
@@ -23,14 +29,22 @@ def build_provider(cfg: RunConfig) -> AIProvider:
             f"no API key found for provider '{cfg.provider}'",
             hint="Set the provider API key env var, or pass --api-key-env.",
         )
+    timeout = cfg.provider_timeout if cfg.provider_timeout is not None else DEFAULT_PROVIDER_TIMEOUT
+    attempts = cfg.retry_attempts if cfg.retry_attempts is not None else DEFAULT_RETRY_ATTEMPTS
     if cfg.provider == "anthropic":
+        base_url = cfg.base_url or ANTHROPIC_BASE_URL
         return AnthropicProvider(
             api_key=cfg.api_key,
             model=cfg.model,
-            base_url=cfg.base_url or "https://api.anthropic.com",
+            base_url=base_url,
+            timeout=timeout,
+            attempts=attempts,
         )
+    base_url = cfg.base_url or DEFAULT_OPENAI_BASE_URL
     return OpenAICompatibleProvider(
         api_key=cfg.api_key,
         model=cfg.model,
-        base_url=cfg.base_url or "https://api.openai.com/v1",
+        base_url=base_url,
+        timeout=timeout,
+        attempts=attempts,
     )

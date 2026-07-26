@@ -11,16 +11,13 @@ import hashlib
 import re
 
 HEADING_RE = re.compile(
-    r"\b(?:def|class|func|function|interface|struct|impl|module|fn)\b\s+([A-Za-z0-9_]+)"
+    r"\b(?:def|class|func|function|interface|struct|impl|module|fn|type|enum)\b\s+"
+    r"([A-Za-z_$][\w$]*)"
 )
 
 # Matches the @@ -a,b +c,d @@ part of a hunk header so we can drop the volatile
 # line numbers and keep only the trailing section heading text.
 _HUNK_RANGE_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def _normalize_header(header: str) -> str:
@@ -66,7 +63,7 @@ def hunk_fingerprint(
             f"header:{_normalize_header(header)}",
         ]
     )
-    return _sha256(payload)
+    return hashlib.sha256(payload.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def worktree_fingerprint(
@@ -85,8 +82,5 @@ def worktree_fingerprint(
         parts.append(f"hunk:{fp}")
     for h in sorted(untracked_hashes):
         parts.append(f"untracked:{h}")
-    return _sha256("\n".join(parts))
+    return hashlib.sha256("\n".join(parts).encode("utf-8", "surrogateescape")).hexdigest()
 
-
-def content_hash(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()

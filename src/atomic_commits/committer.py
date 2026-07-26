@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import output
 from .config import RunConfig
 from .errors import CommitError, PatchApplyError
 from .git_client import GitClient
@@ -17,7 +18,8 @@ class Committer:
         self.stager = Stager(git, include_staged=cfg.include_staged)
 
     def apply(
-        self, plan: CommitPlan, on_event=None, planned_snapshot: WorktreeSnapshot | None = None
+        self, plan: CommitPlan, on_event=None, planned_snapshot: WorktreeSnapshot | None = None,
+        show_progress: bool = True,
     ) -> list[AppliedCommit]:
         """Apply each commit group in order, rescanning between commits.
 
@@ -25,7 +27,8 @@ class Committer:
         commit. Returns the per-group apply log.
         """
         results: list[AppliedCommit] = []
-        snapshot = scan(self.git, self.cfg)
+        with output.step("Scanning worktree...", enabled=show_progress):
+            snapshot = scan(self.git, self.cfg)
         planned_snapshot = planned_snapshot or snapshot
         if self.cfg.include_staged:
             planned_paths = {
@@ -43,31 +46,52 @@ class Committer:
                 and file_change.path in staged_paths
                 and file_change.old_path
             }
-            self.stager.unstage(sorted((planned_paths & staged_paths) | staged_rename_sources))
-            snapshot = scan(self.git, self.cfg)
+            self.git.restore_staged(sorted((planned_paths & staged_paths) | staged_rename_sources))
+            with output.step("Re-scanning worktree...", enabled=show_progress):
+                snapshot = scan(self.git, self.cfg)
         head_before = self.git.head_sha()
 
+        total = len(plan.groups)
+        # Derive file paths per group from hunk_ids + planned_snapshot so the
+        # spinner shows reliable names even when the LLM omits file_paths.
+        planned_by_id = {
+            h.hunk_id: f.path
+            for f in (planned_snapshot.files if planned_snapshot else [])
+            if f.safety.safe
+            for h in f.hunks
+        }
         for idx, group in enumerate(plan.groups, start=1):
             record = AppliedCommit(group_id=group.group_id, message=group.message)
             staged: list[str] = []
+            group_paths = group.file_paths or [
+                planned_by_id[h] for h in group.hunk_ids
+                if h in planned_by_id
+            ]
+            group_label = output.format_files(
+                group_paths, verbose=(self.cfg.mode == "verbose")
+            )
             try:
-                staged = self.stager.stage_group(group, snapshot, planned_snapshot)
+                with output.step(f"Staging commit {idx}/{total} ({group_label})...", enabled=show_progress):
+                    staged = self.stager.stage_group(group, snapshot, planned_snapshot)
                 if not staged:
                     raise PatchApplyError("no hunks staged for group")
-                sha = self.git.commit(group.message, no_verify=self.cfg.no_verify)
+                with output.step(f"Committing {idx}/{total} ({group_label})...", enabled=show_progress):
+                    sha = self.git.commit(group.message, no_verify=self.cfg.no_verify)
                 record.sha = sha
                 record.status = "committed"
                 if on_event:
-                    on_event(idx, len(plan.groups), group, sha)
+                    on_event(idx, total, group, sha)
             except (PatchApplyError, CommitError) as exc:
                 record.status = "failed"
                 record.detail = str(exc)
                 results.append(record)
                 # Never leave staged changes behind (section 21). Unstage the
                 # paths we actually touched, falling back to the group's
-                # declared file paths if staging failed before returning any.
-                cleanup = staged or group.file_paths
-                self.stager.unstage(cleanup)
+                # planned paths (derived from hunk_ids via planned_by_id) if
+                # staging failed before returning any — group.file_paths may
+                # be empty since the validator allows it.
+                cleanup = staged or group_paths
+                self.git.restore_staged(cleanup)
                 return results
 
             results.append(record)
@@ -79,6 +103,7 @@ class Committer:
                 record.detail = "commit did not advance HEAD"
                 return results
             head_before = new_head
-            snapshot = scan(self.git, self.cfg)
+            with output.step("Re-scanning worktree...", enabled=show_progress):
+                snapshot = scan(self.git, self.cfg)
 
         return results

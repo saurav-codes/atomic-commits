@@ -6,7 +6,9 @@ classifies paths and content as safe/unsafe.
 
 from __future__ import annotations
 
+import fnmatch
 import re
+from pathlib import Path
 
 from .models import SafetyResult
 
@@ -19,21 +21,28 @@ EXCLUDED_DIR_COMPONENTS = {
     "logs", "tmp", "temp", ".DS_Store",
 }
 
-# Exact / glob-like filename denylist.
-EXCLUDED_FILENAME_PATTERNS = [
-    re.compile(r"^\.env$"),
-    re.compile(r"^\.env\..+"),
-    re.compile(r".*\.pem$"),
-    re.compile(r".*\.key$"),
-    re.compile(r".*\.p12$"),
-    re.compile(r".*\.pfx$"),
-    re.compile(r"^id_rsa$"),
-    re.compile(r"^id_ed25519$"),
-    re.compile(r"^known_hosts$"),
-    re.compile(r".*\.log$"),
-    re.compile(r".*\.sqlite$"),
-    re.compile(r".*\.db$"),
-]
+# Filename denylist, combined into a single precompiled alternation regex
+# for speed on large file lists. Matched with re.match (anchored at start),
+# so the leading ^ anchors from the original per-pattern forms are redundant
+# and omitted; trailing $ anchors are kept to pin exact/exact-suffix matches.
+EXCLUDED_FILENAME_RE = re.compile(
+    "|".join(
+        [
+            r"\.env$",
+            r"\.env\..+",
+            r".*\.pem$",
+            r".*\.key$",
+            r".*\.p12$",
+            r".*\.pfx$",
+            r"id_rsa$",
+            r"id_ed25519$",
+            r"known_hosts$",
+            r".*\.log$",
+            r".*\.sqlite$",
+            r".*\.db$",
+        ]
+    )
+)
 
 # Sample files that are allowed despite matching .env.* if they look safe.
 SAMPLE_ENV_RE = re.compile(r"\.env\.(example|sample|template|dist)$")
@@ -49,18 +58,80 @@ BINARY_EXTS = {
     ".mp3", ".mp4", ".mov", ".class", ".pyc",
 }
 
-def path_excluded(path: str) -> tuple[bool, str | None]:
-    """Return (excluded, reason)."""
+
+class Allowlist:
+    """Path-glob allowlist (the ``.atcallow`` file) that overrides exclusions.
+
+    A path that matches a denylist entry but also matches an allowlist glob is
+    permitted. Matching is case-sensitive (``fnmatch.fnmatchcase``) and is
+    tried against both the full repo-relative path and the basename, so a bare
+    ``test.key`` allows ``test.key`` anywhere in the tree. An empty allowlist
+    (no ``.atcallow`` present) overrides nothing, preserving the default
+    denylist behavior.
+    """
+
+    def __init__(self, patterns: list[str] | None = None) -> None:
+        self._patterns: list[str] = list(patterns) if patterns else []
+
+    def __bool__(self) -> bool:
+        return bool(self._patterns)
+
+    def matches(self, path: str) -> bool:
+        norm = path.replace("\\", "/")
+        name = norm.rsplit("/", 1)[-1]
+        for pat in self._patterns:
+            if fnmatch.fnmatchcase(norm, pat) or fnmatch.fnmatchcase(name, pat):
+                return True
+        return False
+
+
+def load_allowlist(repo_root: Path) -> Allowlist:
+    """Load ``.atcallow`` from the repo root.
+
+    Returns an empty :class:`Allowlist` when the file is absent or unreadable.
+    Blank lines and ``#`` comments are ignored; every other line is a path
+    glob. Exposed so scanner/committer can build the allowlist once and pass it
+    to :func:`path_excluded` / :func:`evaluate_path` read-only.
+    """
+    path = repo_root / ".atcallow"
+    if not path.is_file():
+        return Allowlist()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return Allowlist()
+    patterns: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(line)
+    return Allowlist(patterns)
+
+
+def path_excluded(
+    path: str,
+    *,
+    allowlist: Allowlist | None = None,
+) -> tuple[bool, str | None]:
+    """Return (excluded, reason).
+
+    When ``allowlist`` is provided, a path that matches both a denylist entry
+    and an allowlist glob is permitted (returns ``(False, None)``).
+    """
     parts = path.replace("\\", "/").split("/")
     for comp in parts:
         if comp in EXCLUDED_DIR_COMPONENTS:
+            if allowlist is not None and allowlist.matches(path):
+                return False, None
             return True, f"path component '{comp}' is denylisted"
     filename = parts[-1] if parts else path
     if SAMPLE_ENV_RE.search(filename):
         return False, None
-    for pat in EXCLUDED_FILENAME_PATTERNS:
-        if pat.match(filename):
-            return True, f"filename '{filename}' is denylisted"
+    if EXCLUDED_FILENAME_RE.match(filename):
+        if allowlist is not None and allowlist.matches(path):
+            return False, None
+        return True, f"filename '{filename}' is denylisted"
     return False, None
 
 
@@ -81,12 +152,12 @@ def evaluate_path(
     path: str,
     *,
     is_binary: bool,
-    content: str | None,
     allow_binary: bool,
+    allowlist: Allowlist | None = None,
 ) -> SafetyResult:
-    """Evaluate a single file path + optional decoded content."""
+    """Evaluate a single file path for safety."""
     result = SafetyResult()
-    excluded, reason = path_excluded(path)
+    excluded, reason = path_excluded(path, allowlist=allowlist)
     if excluded:
         result.safe = False
         result.excluded_path = True
@@ -105,5 +176,4 @@ def evaluate_path(
             result.reasons.append(f"binary extension '{ext}' not in safe asset allowlist")
             return result
 
-    _ = content
     return result
