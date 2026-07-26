@@ -237,6 +237,8 @@ def _apply_with_progress(
 def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
     """Apply a previously saved plan (`atc apply`)."""
     preflight(git, cfg)
+    if not cfg.no_verify:
+        prepare_hooks(git, cfg)
     show = not cfg.json_output
     store = SessionStore(git)
     commit_plan = store.load_plan_file(plan_path) if plan_path else store.load_latest_plan()
@@ -263,7 +265,9 @@ def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
     results = _apply_with_progress(
         git, cfg, store, session_id, commit_plan, show=show,
     )
-    output.print_apply_result(results, as_json=cfg.json_output)
+    output.print_apply_result(
+        results, planned_total=len(commit_plan.groups), as_json=cfg.json_output,
+    )
 
 
 def resume(git: GitClient, cfg: RunConfig) -> None:
@@ -278,6 +282,8 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         entry.xy[:1] not in {"", " ", "?"} for entry in planned_snapshot.status_entries
     ):
         cfg.include_staged = True
+    if not cfg.no_verify:
+        prepare_hooks(git, cfg)
     preflight(git, cfg)
     if planned_snapshot is not None:
         repaired = ensure_applicable_plan(commit_plan, planned_snapshot, cfg)
@@ -348,4 +354,6 @@ def resume(git: GitClient, cfg: RunConfig) -> None:
         planned_snapshot=planned_snapshot,
         show=show,
     )
-    output.print_apply_result(results, as_json=cfg.json_output)
+    output.print_apply_result(
+        results, planned_total=len(commit_plan.groups), as_json=cfg.json_output,
+    )
