@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "atomic-commits"
-version = "0.2.5"
+version = "0.3.0"
 description = "Turn a dirty Git worktree into meaningful atomic commits using AI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ dependencies = [
   "rich>=13.7",
   "pydantic>=2.6",
   "tomli_w>=1.0",
+  "openai>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -61,4 +62,4 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=atomic_commits --cov-report=term-missing --cov-fail-under=60"  # raise after adding cli/integration coverage (IMPROVEMENTS 6.6)
+addopts = "-q --cov=atomic_commits --cov-report=term-missing --cov-fail-under=60"
