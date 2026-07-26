@@ -64,6 +64,12 @@ Versioning and the structure of Keep a Changelog.
   adapt OpenAI-compatible output limits after a parseable context-window error.
 - Keep streamed previews transient even when model output contains the word
   `retry`; only actual provider retries are written to terminal history.
+- Keep parallel chunk and batch counters transient, cap compact warning output,
+  avoid repeating the proposed commit list, and report the real plan total after
+  an apply failure.
+- Run standard formatter hooks once before the default workflow, retry malformed
+  streamed JSON automatically, and resume unchanged hunks when Git reclassifies
+  a rename as a deletion plus addition.
 
 ### Documentation
 
