@@ -79,6 +79,25 @@ class Stager:
             staged_paths.append(path)
         for old_path, new_path in sorted(whole_file_rename):
             self.git.add_all_paths([old_path, new_path])
+            staged_rename = next(
+                (
+                    file_change
+                    for file_change in diff_parser.parse_patch(
+                        self.git.diff_cached(), is_tracked=True,
+                    )
+                    if file_change.path == new_path
+                ),
+                None,
+            )
+            actual = {
+                (tuple(hunk.removed), tuple(hunk.added))
+                for hunk in staged_rename.hunks
+            } if staged_rename is not None else set()
+            if actual != wanted_changes[new_path]:
+                self.git.restore_staged([old_path, new_path])
+                raise PatchApplyError(
+                    f"renamed file '{new_path}' no longer matches the planned content"
+                )
             staged_paths.append(new_path)
         for path in whole_file_mode:
             self.git.add_path(path)
