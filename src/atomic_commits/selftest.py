@@ -52,7 +52,7 @@ class DeterministicProvider:
 
     def complete_json(
         self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float,
-        stream: bool = False, timeout: float | None = None, attempts: int | None = None,
+        timeout: float | None = None, attempts: int | None = None,
     ) -> dict[str, Any]:
         payload = json.loads(user)
         if schema_name == "ChunkReview":
@@ -60,7 +60,6 @@ class DeterministicProvider:
                 "chunk_id": payload["chunk_id"],
                 "summary": "self-test review",
                 "detected_concerns": [],
-                "suggested_groups": [],
                 "risky_hunks": [],
                 "message_terms": {},
             }

@@ -120,31 +120,6 @@ def _confirm_now(cfg: RunConfig, n: int, messages: list[str]) -> bool:
     return typer.confirm("Apply these commits?", default=False)
 
 
-def _empty_instructions(repo: Path) -> str:
-    """Return empty instruction text; used to stub planner._load_instructions."""
-    return ""
-
-
-@contextmanager
-def _no_instructions_patch(enabled: bool):
-    """Skip instruction-file loading (AGENTS.md/.cursorrules/CLAUDE.md/README.md).
-
-    Patches planner._load_instructions for the run so no instruction-file
-    content is sent to the provider (IMPROVEMENTS 7.4).
-    """
-    if not enabled:
-        yield
-        return
-    from . import planner as planner_mod
-
-    orig = planner_mod._load_instructions
-    planner_mod._load_instructions = _empty_instructions
-    try:
-        yield
-    finally:
-        planner_mod._load_instructions = orig
-
-
 def _append_trailers(plan: CommitPlan, trailers: list[str]) -> CommitPlan:
     """Append trailer lines to each group message in place (4.6)."""
     if not trailers:
@@ -231,7 +206,7 @@ def main(
     api_key_env: str | None = typer.Option(None, "--api-key-env", help="Env var holding the provider API key."),
     max_chunk_tokens: int = typer.Option(32000, "--max-chunk-tokens", help="Advanced ceiling; ATC budgets requests automatically."),
     max_reducer_tokens: int = typer.Option(16000, "--max-reducer-tokens", help="Advanced ceiling; ATC budgets requests automatically."),
-    direct_max_tokens: int = typer.Option(120000, "--full-change-limit", help="Use one full-change request up to this estimated input size."),
+    direct_max_tokens: int = typer.Option(120000, "--full-change-limit", help="Use one full-change request up to this estimated input size. Pass the default to let env/config override it."),
     temperature: float = typer.Option(0.0, "--temperature", help="Sampling temperature."),
     no_verify: bool = typer.Option(False, "--no-verify", help="Pass --no-verify to git commit."),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompts where safe."),
@@ -242,11 +217,11 @@ def main(
         False, "--squash", help="Re-plan the last commit's diff and rewrite it as a SINGLE squash commit."
     ),
     trailer: list[str] | None = typer.Option(None, "--trailer", help="Append a trailer to every commit. Repeatable."),
-    no_instructions: bool = typer.Option(False, "--no-instructions", help="Skip loading instruction files."),
     max_parallel: int | None = typer.Option(None, "--max-parallel", help="Cap the planner's thread pool size."),
     retry_attempts: int = typer.Option(3, "--retry-attempts", help="Per-request retry count for provider HTTP calls."),
     provider_timeout: float = typer.Option(180.0, "--provider-timeout", help="Network timeout for one provider request, in seconds."),
     deadline: float = typer.Option(600.0, "--time-limit", help="Total planning time limit in seconds. Work is cached for resume."),
+    no_instructions: bool = typer.Option(False, "--no-instructions", help="Skip loading instruction files."),
     review_plan: bool = typer.Option(True, "--review/--no-review", help="Review the plan once for more useful atomic commits."),
     message_template: str | None = typer.Option(None, "--message-template", help="Custom commit-message template (${scope}, ${verb}, ${object})."),
     version: bool = typer.Option(None, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."),
@@ -293,6 +268,7 @@ def main(
         deadline=deadline,
         review_plan=review_plan,
         message_template=message_template,
+        no_instructions=no_instructions,
     )
     ctx.obj = cfg
 
@@ -302,8 +278,7 @@ def main(
 
     trailers = list(trailer or [])
     try:
-        with _no_instructions_patch(no_instructions):
-            _run_default(cfg, amend=amend, squash=squash, trailers=trailers)
+        _run_default(cfg, amend=amend, squash=squash, trailers=trailers)
     except AtcError as exc:
         _exit_on_atc_error(exc, cfg)
 

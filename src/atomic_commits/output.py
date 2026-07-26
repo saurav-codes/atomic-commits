@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import contextvars
 import json
 import sys
+import time
 from contextlib import nullcontext
-from threading import Event, Thread
 from typing import Any
 
 from rich.console import Console
@@ -18,16 +17,6 @@ from .models import AppliedCommit, CommitPlan, Hunk, WorktreeSnapshot
 console = Console()
 err_console = Console(stderr=True)
 
-# Track the currently-active spinner so nested `step()` calls can suspend
-# the outer spinner before starting their own, avoiding garbled output.
-#
-# A ContextVar (rather than a module global) keeps the nesting chain
-# per-context/per-thread, so two consoles running concurrently (e.g. in
-# tests) don't clobber each other's active spinner.
-_active_spinner: contextvars.ContextVar[_ElapsedSpinner | None] = contextvars.ContextVar(
-    "atc_active_spinner", default=None
-)
-
 # Rich color per CommitGroup.risk level, used by print_plan.
 _RISK_COLOR: dict[str, str] = {"high": "red", "medium": "yellow", "low": "green"}
 
@@ -35,79 +24,32 @@ _RISK_COLOR: dict[str, str] = {"high": "red", "medium": "yellow", "low": "green"
 _STATUS_COLOR: dict[str, str] = {"planned": "yellow", "committed": "green", "failed": "red"}
 
 
-class _ElapsedSpinner:
-    """Wraps Rich's Status and updates its text every second with elapsed time.
-
-    Keeps the spinner animation alive (Rich handles the icon cycling) while
-    appending "(Ns elapsed)" so the user sees continuous progress during long
-    LLM calls instead of a frozen message. Suspends any outer spinner while
-    running so nested spinners don't garble the terminal.
-    """
-
-    def __init__(self, message: str, console: Console) -> None:
-        self._base = message
-        self._console = console
-        self._status = console.status(message, spinner="dots")
-        self._stop = Event()
-        self._thread: Thread | None = None
-        self._outer: _ElapsedSpinner | None = None
-        self._token: contextvars.Token[_ElapsedSpinner | None] | None = None
-
-    def __enter__(self) -> _ElapsedSpinner:
-        # Suspend the outer spinner (if any) before starting ours.
-        self._outer = _active_spinner.get()
-        if self._outer is not None:
-            self._outer._suspend()
-        self._status.start()
-        self._thread = Thread(target=self._tick, daemon=True)
-        self._thread.start()
-        self._token = _active_spinner.set(self)
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2)
-        self._status.stop()
-        if self._token is not None:
-            _active_spinner.reset(self._token)
-        # Resume the outer spinner (if any).
-        if self._outer is not None:
-            self._outer._resume()
-
-    def _suspend(self) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1)
-            self._thread = None
-        self._status.stop()
-
-    def _resume(self) -> None:
-        self._stop = Event()
-        self._status.start()
-        self._thread = Thread(target=self._tick, daemon=True)
-        self._thread.start()
-
-    def _tick(self) -> None:
-        import time
-
-        start = time.monotonic()
-        while not self._stop.wait(1.0):
-            elapsed = int(time.monotonic() - start)
-            self._status.update(f"{self._base} ({elapsed}s elapsed)")
-
-
 def step(message: str, *, enabled: bool = True):
     """Context manager showing a Rich spinner on stderr while a block runs.
 
-    The spinner appends elapsed time every second so the user sees continuous
-    progress. Nested `step()` calls suspend their outer spinner while running
-    so the terminal doesn't garble. No-op when disabled (JSON mode) or stderr
-    isn't a TTY, so piped/CI output stays clean.
+    Appends elapsed time each refresh so the user sees progress during long
+    LLM calls. No-op when disabled (JSON mode) or stderr isn't a TTY, so
+    piped/CI output stays clean. Nested `step()` calls simply render their own
+    spinner on top of the outer one (Rich handles one live display at a time).
     """
     if not enabled or not err_console.is_terminal:
         return nullcontext()
-    return _ElapsedSpinner(message, err_console)
+
+    class _Spinner:
+        def __init__(self) -> None:
+            self._status = err_console.status(message, spinner="dots")
+            self._start = time.monotonic()
+
+        def __enter__(self) -> None:
+            self._status.start()
+            self._status.update(f"{message} (0s elapsed)")
+
+        def __exit__(self, *exc) -> None:
+            elapsed = int(time.monotonic() - self._start)
+            self._status.update(f"{message} ({elapsed}s elapsed)")
+            self._status.stop()
+
+    return _Spinner()
 
 
 def note(message: str, *, enabled: bool = True, style: str = "dim") -> None:

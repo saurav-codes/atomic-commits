@@ -38,7 +38,7 @@ class MockProvider:
 
     def complete_json(
         self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float,
-        stream: bool = False, timeout: float | None = None, attempts: int | None = None,
+        timeout: float | None = None, attempts: int | None = None,
     ) -> dict[str, Any]:
         self.calls.append(schema_name)
         import json
@@ -49,7 +49,6 @@ class MockProvider:
                 "chunk_id": payload["chunk_id"],
                 "summary": "mock review",
                 "detected_concerns": [],
-                "suggested_groups": [],
                 "risky_hunks": [],
                 "message_terms": {},
             }

@@ -100,7 +100,6 @@ class AIProvider(Protocol):
         schema_name: str,
         max_tokens: int,
         temperature: float,
-        stream: bool = False,
         timeout: float | None = None,
         attempts: int | None = None,
     ) -> dict[str, Any]:

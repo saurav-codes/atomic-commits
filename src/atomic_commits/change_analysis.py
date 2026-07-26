@@ -11,7 +11,11 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from .fingerprints import HEADING_RE as _SYMBOL_HEADER
 from .models import ChangeGraph, ChangeLink, ChangeUnit, WorktreeSnapshot
+
+# _SYMBOL_HEADER is shared with fingerprints.HEADING_RE — one symbol-header
+# pattern for the repo.
 
 _LANGUAGES = {
     ".py": "python", ".pyi": "python", ".js": "javascript", ".jsx": "javascript",
@@ -23,9 +27,6 @@ _LANGUAGES = {
     ".json": "json",
 }
 
-_SYMBOL_HEADER = re.compile(
-    r"\b(?:def|class|function|func|fn|interface|type|struct|enum)\s+([A-Za-z_$][\w$]*)"
-)
 _IMPORT = re.compile(
     r"(?:from\s+([\w.]+)\s+import|import\s+([\w./-]+)|require\(['\"]([^'\"]+)|from\s+['\"]([^'\"]+))"
 )

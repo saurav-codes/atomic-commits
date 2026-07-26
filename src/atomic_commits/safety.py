@@ -73,11 +73,6 @@ class Allowlist:
     def __init__(self, patterns: list[str] | None = None) -> None:
         self._patterns: list[str] = list(patterns) if patterns else []
 
-    @property
-    def patterns(self) -> list[str]:
-        """Read-only copy of the glob patterns."""
-        return list(self._patterns)
-
     def __bool__(self) -> bool:
         return bool(self._patterns)
 

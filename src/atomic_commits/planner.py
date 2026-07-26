@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from . import output, prompts
 from .change_analysis import build_change_graph, connected_groups
-from .config import RunConfig
+from .config import DEFAULT_DEADLINE, DEFAULT_DIRECT_MAX_TOKENS, RunConfig
 from .errors import InvalidAIResponseError, PlanValidationError, ProviderError
 from .git_client import GitClient
 from .models import ChangeGraph, ChunkReview, CommitGroup, CommitPlan, ContextPack, WorktreeSnapshot
@@ -37,6 +37,11 @@ _BOUNDED_PLAN_WARNING = "ATC planned this large change in bounded semantic batch
 def _estimate_tokens(text: str) -> int:
     # Cheap heuristic: ~4 chars per token.
     return max(1, len(text) // 4)
+
+
+def _direct_max_tokens(cfg: RunConfig) -> int:
+    """``cfg.direct_max_tokens`` after applying the default for unset values."""
+    return cfg.direct_max_tokens if cfg.direct_max_tokens is not None else DEFAULT_DIRECT_MAX_TOKENS
 
 
 def _load_instructions(repo: Path) -> str:
@@ -80,7 +85,7 @@ def build_context_pack(git: GitClient, snapshot: WorktreeSnapshot, cfg: RunConfi
         safety_exclusions=exclusions,
         file_list=file_list,
         diffstat=git.diffstat(),
-        instructions=_load_instructions(snapshot.repo_root),
+        instructions="" if cfg.no_instructions else _load_instructions(snapshot.repo_root),
         hunk_inventory=hunk_inventory,
     )
 
@@ -995,7 +1000,7 @@ def plan(
     show_progress: bool = True,
 ) -> CommitPlan:
     """Plan the finest useful commits with a direct or evidence-assisted path."""
-    budget = _TimeBudget(cfg.deadline)
+    budget = _TimeBudget(cfg.deadline if cfg.deadline is not None else DEFAULT_DEADLINE)
     with output.step("Reading repository context...", enabled=show_progress):
         context = build_context_pack(git, snapshot, cfg)
         graph = build_change_graph(snapshot)
@@ -1027,10 +1032,10 @@ def plan(
             )
             commit_plan = None
     if commit_plan is not None:
-        if direct_tokens > cfg.direct_max_tokens:
+        if direct_tokens > _direct_max_tokens(cfg):
             evidence = []
         output.note("Initial plan: reused cached result", enabled=show_progress)
-    elif direct_tokens <= cfg.direct_max_tokens:
+    elif direct_tokens <= _direct_max_tokens(cfg):
         output.note(
             f"Plan method: one full-change request ({direct_tokens:,} estimated tokens)",
             enabled=show_progress,

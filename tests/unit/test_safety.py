@@ -103,7 +103,6 @@ def test_no_atcallow_keeps_default_denylist():
 def test_load_allowlist_absent(tmp_path):
     al = load_allowlist(tmp_path)
     assert bool(al) is False
-    assert al.patterns == []
     # Empty allowlist does not override the denylist.
     assert path_excluded(".env", allowlist=al)[0] is True
 
@@ -113,7 +112,6 @@ def test_load_allowlist_reads_file(tmp_path):
         "# allow test fixtures\nfixtures/*.key\n.env\n\n"
     )
     al = load_allowlist(tmp_path)
-    assert al.patterns == ["fixtures/*.key", ".env"]
     assert path_excluded("fixtures/secrets.key", allowlist=al)[0] is False
     assert path_excluded(".env", allowlist=al)[0] is False
     # A non-allowed denylist entry is still excluded.

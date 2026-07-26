@@ -80,13 +80,53 @@ def map_user(
                 "chunk_id": "str",
                 "summary": "str",
                 "detected_concerns": ["str"],
-                "suggested_groups": [{"subject": "str", "hunk_ids": ["str"], "rationale": "str"}],
                 "risky_hunks": ["str"],
                 "message_terms": {"<hunk_id>": ["term"]},
             },
         },
         ensure_ascii=False,
     )
+
+
+def _reduce_payload(
+    context_pack: dict[str, Any],
+    chunk_reviews: list[dict[str, Any]],
+    hunk_inventory: list[dict[str, Any]],
+    mode: str,
+    repo_fingerprint: str,
+    base_head: str,
+) -> dict[str, Any]:
+    return {
+        "context": {
+            key: value for key, value in context_pack.items()
+            if key != "hunk_inventory"
+        },
+        "mode": mode,
+        "repo_fingerprint": repo_fingerprint,
+        "base_head": base_head,
+        "chunk_reviews": chunk_reviews,
+        "hunk_inventory": hunk_inventory,
+        "output_schema": {
+            "version": "1",
+            "mode": mode,
+            "repo_fingerprint": repo_fingerprint,
+            "base_head": base_head,
+            "groups": [
+                {
+                    "group_id": "str",
+                    "message": "type(scope): verb exact behavior",
+                    "rationale": "str",
+                    "hunk_ids": ["str"],
+                    "file_paths": ["str"],
+                    "risk": "low|medium|high",
+                    "depends_on": ["group_id"],
+                    "unsplittable_reason": "why another split would be incomplete or artificial",
+                }
+            ],
+            "excluded": [{"path": "str", "reason": "str", "hunk_ids": ["str"]}],
+            "warnings": ["str"],
+        },
+    }
 
 
 def reduce_user(
@@ -98,37 +138,9 @@ def reduce_user(
     base_head: str,
 ) -> str:
     return json.dumps(
-        {
-            "context": {
-                key: value for key, value in context_pack.items()
-                if key != "hunk_inventory"
-            },
-            "mode": mode,
-            "repo_fingerprint": repo_fingerprint,
-            "base_head": base_head,
-            "chunk_reviews": chunk_reviews,
-            "hunk_inventory": hunk_inventory,
-            "output_schema": {
-                "version": "1",
-                "mode": mode,
-                "repo_fingerprint": repo_fingerprint,
-                "base_head": base_head,
-                "groups": [
-                    {
-                        "group_id": "str",
-                        "message": "type(scope): verb exact behavior",
-                        "rationale": "str",
-                        "hunk_ids": ["str"],
-                        "file_paths": ["str"],
-                        "risk": "low|medium|high",
-                        "depends_on": ["group_id"],
-                        "unsplittable_reason": "why another split would be incomplete or artificial",
-                    }
-                ],
-                "excluded": [{"path": "str", "reason": "str", "hunk_ids": ["str"]}],
-                "warnings": ["str"],
-            },
-        },
+        _reduce_payload(
+            context_pack, chunk_reviews, hunk_inventory, mode, repo_fingerprint, base_head
+        ),
         ensure_ascii=False,
     )
 
@@ -137,8 +149,8 @@ def direct_user(
     context_pack: dict[str, Any], change_graph: dict[str, Any], diff: str,
     mode: str, repo_fingerprint: str, base_head: str,
 ) -> str:
-    payload = json.loads(
-        reduce_user(context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head)
+    payload = _reduce_payload(
+        context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head
     )
     payload.update(
         {
@@ -154,8 +166,8 @@ def review_user(
     context_pack: dict[str, Any], change_graph: dict[str, Any], current_plan: dict[str, Any],
     diff_or_evidence: Any, mode: str, repo_fingerprint: str, base_head: str,
 ) -> str:
-    payload = json.loads(
-        reduce_user(context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head)
+    payload = _reduce_payload(
+        context_pack, [], context_pack["hunk_inventory"], mode, repo_fingerprint, base_head
     )
     payload.update(
         {
@@ -173,17 +185,3 @@ def review_user(
         }
     )
     return json.dumps(payload, ensure_ascii=False)
-
-
-def rename_message_user(hunk_context: str, rejected: str, reasons: list[str]) -> str:
-    return json.dumps(
-        {
-            "task": "Rewrite this commit message to be specific to the hunk behavior.",
-            "rejected_message": rejected,
-            "rejection_reasons": reasons,
-            "hunk_context": hunk_context,
-            "format": "scope: verb exact behavior",
-            "output_schema": {"message": "str"},
-        },
-        ensure_ascii=False,
-    )

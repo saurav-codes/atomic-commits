@@ -11,7 +11,8 @@ import hashlib
 import re
 
 HEADING_RE = re.compile(
-    r"\b(?:def|class|func|function|interface|struct|impl|module|fn)\b\s+([A-Za-z0-9_]+)"
+    r"\b(?:def|class|func|function|interface|struct|impl|module|fn|type|enum)\b\s+"
+    r"([A-Za-z_$][\w$]*)"
 )
 
 # Matches the @@ -a,b +c,d @@ part of a hunk header so we can drop the volatile

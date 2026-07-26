@@ -43,7 +43,6 @@ class ParallelRecordingProvider:
         schema_name: str,
         max_tokens: int,
         temperature: float,
-        stream: bool = False,
         timeout: float | None = None,
         attempts: int | None = None,
     ) -> dict[str, Any]:
@@ -62,7 +61,6 @@ class ParallelRecordingProvider:
             "chunk_id": chunk_id,
             "summary": "mock review",
             "detected_concerns": [],
-            "suggested_groups": [],
             "risky_hunks": [],
             "message_terms": {},
         }

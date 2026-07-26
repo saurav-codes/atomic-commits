@@ -26,6 +26,14 @@ HookMode = Literal["once", "each", "skip"]
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 
+# Defaults for the four knobs below are applied in ``resolve_provider_credentials``
+# (not in the dataclass) so that an explicit caller value can be distinguished
+# from "left unset" and env/file overrides only fill in the unset ones.
+DEFAULT_PROVIDER_TIMEOUT = 180.0
+DEFAULT_RETRY_ATTEMPTS = 3
+DEFAULT_DIRECT_MAX_TOKENS = 120000
+DEFAULT_DEADLINE = 600.0
+
 CONFIG_LOCATIONS = [
     Path(".atc.toml"),
     Path.home() / ".config" / "atc" / "config.toml",
@@ -51,13 +59,15 @@ class RunConfig:
     max_chunk_tokens: int = 32000
     max_reducer_tokens: int = 16000
     # Use one globally informed planner call while the complete prompt fits.
-    direct_max_tokens: int = 120000
+    direct_max_tokens: int | None = None
     temperature: float = 0.0
 
     # Per-request socket timeout for provider HTTP calls, in seconds. The
     # reduce/synthesis phase auto-scales this upward for large plans (see
     # planner._reduce_once), so this is the floor, not a hard ceiling.
-    provider_timeout: float = 180.0
+    # ``None`` means "not set by the caller"; the real default is applied in
+    # ``resolve_provider_credentials`` so env/file overrides can replace it.
+    provider_timeout: float | None = None
 
     no_verify: bool = False
     hook_mode: HookMode = "each"
@@ -71,15 +81,20 @@ class RunConfig:
     # Caps the planner's per-run thread pool (2.3). None lets the planner pick.
     max_parallel: int | None = None
 
-    # Per-request retry count for provider HTTP calls (1.5). Default matches the
-    # prior hardcoded value so existing behavior is unchanged.
-    retry_attempts: int = 3
+    # Per-request retry count for provider HTTP calls (1.5). ``None`` means
+    # "not set by the caller"; resolved to the default in
+    # ``resolve_provider_credentials``.
+    retry_attempts: int | None = None
 
-    # Total planning budget. Completed work is cached when this expires.
-    deadline: float = 600.0
+    # Total planning budget. ``None`` means "not set by the caller"; resolved
+    # to the default in ``resolve_provider_credentials``.
+    deadline: float | None = None
 
     # One review call tries to split every valid plan as far as meaning allows.
     review_plan: bool = True
+
+    # Skip loading AGENTS.md/.cursorrules/CLAUDE.md/README.md instruction files.
+    no_instructions: bool = False
 
 
 def _load_config_file() -> dict[str, Any]:
@@ -141,10 +156,10 @@ def resolve_provider_credentials(cfg: RunConfig) -> RunConfig:
     # only fill it from the file when the caller hasn't already set one.
     cfg.message_template = cfg.message_template or provider_cfg.get("message_template")
 
-    # Per-request timeout (seconds). CLI flag wins, then env, then config file,
-    # then the dataclass default (180s). Applies to every provider HTTP call;
-    # the planner auto-scales it upward for large reduce/synthesis passes.
-    if cfg.provider_timeout == 180.0:
+    # The four knobs below default to ``None`` on the dataclass so an explicit
+    # caller value is distinguishable from "left unset". Env > file fills in
+    # only the unset ones; anything still unset at the end gets the real default.
+    if cfg.provider_timeout is None:
         env_timeout = os.getenv("ATC_PROVIDER_TIMEOUT")
         file_timeout = provider_cfg.get("timeout")
         if env_timeout is not None:
@@ -158,8 +173,7 @@ def resolve_provider_credentials(cfg: RunConfig) -> RunConfig:
             except (TypeError, ValueError):
                 pass
 
-    # Retry attempts: env/config override only when the caller left the default.
-    if cfg.retry_attempts == 3:
+    if cfg.retry_attempts is None:
         env_attempts = os.getenv("ATC_RETRY_ATTEMPTS")
         file_attempts = provider_cfg.get("retry_attempts")
         if env_attempts is not None:
@@ -173,7 +187,7 @@ def resolve_provider_credentials(cfg: RunConfig) -> RunConfig:
             except (TypeError, ValueError):
                 pass
 
-    if cfg.direct_max_tokens == 120000:
+    if cfg.direct_max_tokens is None:
         value = os.getenv("ATC_FULL_CHANGE_LIMIT") or provider_cfg.get("full_change_limit")
         if value is not None:
             try:
@@ -181,7 +195,7 @@ def resolve_provider_credentials(cfg: RunConfig) -> RunConfig:
             except (TypeError, ValueError):
                 pass
 
-    if cfg.deadline == 600.0:
+    if cfg.deadline is None:
         value = os.getenv("ATC_TIME_LIMIT") or provider_cfg.get("time_limit")
         if value is not None:
             try:
@@ -192,6 +206,17 @@ def resolve_provider_credentials(cfg: RunConfig) -> RunConfig:
     review = os.getenv("ATC_REVIEW")
     if review is not None:
         cfg.review_plan = review.strip().lower() not in {"0", "false", "no", "off"}
+
+    # Apply real defaults for anything the caller left unset (and no env/file
+    # override provided). Done last so an explicit CLI value is never clobbered.
+    if cfg.provider_timeout is None:
+        cfg.provider_timeout = DEFAULT_PROVIDER_TIMEOUT
+    if cfg.retry_attempts is None:
+        cfg.retry_attempts = DEFAULT_RETRY_ATTEMPTS
+    if cfg.direct_max_tokens is None:
+        cfg.direct_max_tokens = DEFAULT_DIRECT_MAX_TOKENS
+    if cfg.deadline is None:
+        cfg.deadline = DEFAULT_DEADLINE
 
     return cfg
 

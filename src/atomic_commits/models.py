@@ -120,18 +120,11 @@ class CommitPlan(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class SuggestedGroup(BaseModel):
-    subject: str
-    hunk_ids: list[str] = Field(default_factory=list)
-    rationale: str = ""
-
-
 class ChunkReview(BaseModel):
     chunk_id: str
     hunk_ids: list[str] = Field(default_factory=list)
     summary: str = ""
     detected_concerns: list[str] = Field(default_factory=list)
-    suggested_groups: list[SuggestedGroup] = Field(default_factory=list)
     risky_hunks: list[str] = Field(default_factory=list)
     message_terms: dict[str, list[str]] = Field(default_factory=dict)
 

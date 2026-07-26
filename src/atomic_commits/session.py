@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from .git_client import GitClient
 from .models import AppliedCommit, CommitPlan, WorktreeSnapshot
 
@@ -118,24 +120,21 @@ class SessionStore:
         if not self.latest_plan_path.is_file():
             return None
         try:
-            data = json.loads(self.latest_plan_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            return CommitPlan.model_validate_json(self.latest_plan_path.read_bytes())
+        except (ValidationError, ValueError):
             return None
-        return CommitPlan.model_validate(data)
 
     def load_plan_file(self, path: Path) -> CommitPlan:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        return CommitPlan.model_validate(data)
+        return CommitPlan.model_validate_json(Path(path).read_bytes())
 
     def load_snapshot(self, session_id: str) -> WorktreeSnapshot | None:
         path = self.session_path(session_id) / "snapshot.json"
         if not path.is_file():
             return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            return WorktreeSnapshot.model_validate_json(path.read_bytes())
+        except (ValidationError, ValueError):
             return None
-        return WorktreeSnapshot.model_validate(data)
 
     def list_sessions(self) -> list[str]:
         if not self.sessions_dir.is_dir():
@@ -150,8 +149,8 @@ class SessionStore:
         if not path.is_file():
             return []
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            data = json.loads(path.read_bytes())
+        except ValueError:
             return []
         return [AppliedCommit.model_validate(a) for a in data]
 

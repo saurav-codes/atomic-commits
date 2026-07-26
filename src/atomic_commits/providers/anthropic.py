@@ -38,11 +38,9 @@ class AnthropicProvider:
         schema_name: str,
         max_tokens: int,
         temperature: float,
-        stream: bool = False,
         timeout: float | None = None,
         attempts: int | None = None,
     ) -> dict[str, Any]:
-        # Streaming is not yet implemented; ``stream`` is accepted for API parity only.
         url = f"{self.base_url}/v1/messages"
         payload = {
             "model": self.model,

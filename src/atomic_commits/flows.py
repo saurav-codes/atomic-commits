@@ -183,22 +183,6 @@ def dry_run(git: GitClient, cfg: RunConfig) -> CommitPlan:
     return _build_plan(git, cfg, store, session_id)
 
 
-def plan_and_commit(git: GitClient, cfg: RunConfig) -> None:
-    """Plan and apply in one run (`atc` with no subcommand, and `atc commit`)."""
-    preflight(git, cfg)
-    show = not cfg.json_output
-    store = SessionStore(git)
-    session_id = store.create()
-    commit_plan = _build_plan(git, cfg, store, session_id)
-    store.write_backup(session_id, git.backup_patch())
-    committer = Committer(git, cfg)
-    results = committer.apply(
-        commit_plan, on_event=output.print_apply_progress, show_progress=show
-    )
-    store.write_apply_log(session_id, results)
-    output.print_apply_result(results, as_json=cfg.json_output)
-
-
 def apply_saved(git: GitClient, cfg: RunConfig, plan_path: Path | None) -> None:
     """Apply a previously saved plan (`atc apply`)."""
     preflight(git, cfg)

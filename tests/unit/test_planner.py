@@ -16,7 +16,7 @@ class InvalidPlanProvider:
 
     def complete_json(
         self, *, system: str, user: str, schema_name: str, max_tokens: int, temperature: float,
-        stream: bool = False, timeout: float | None = None, attempts: int | None = None,
+        timeout: float | None = None, attempts: int | None = None,
     ) -> dict[str, Any]:
         self.calls.append(schema_name)
         payload = json.loads(user)
@@ -25,7 +25,6 @@ class InvalidPlanProvider:
                 "chunk_id": payload["chunk_id"],
                 "summary": "mock review",
                 "detected_concerns": [],
-                "suggested_groups": [],
                 "risky_hunks": [],
                 "message_terms": {},
             }
@@ -150,8 +149,8 @@ def test_reduce_once_uses_remaining_run_budget(git_repo):
             self.last_timeout: float | None = None
 
         def complete_json(
-            self, *, system: str, user: str, schema_name: str, max_tokens: int,
-            temperature: float, stream: bool = False,
+                self, *, system: str, user: str, schema_name: str, max_tokens: int,
+            temperature: float,
             timeout: float | None = None, attempts: int | None = None,
         ) -> dict[str, Any]:
             self.last_timeout = timeout
@@ -202,8 +201,8 @@ def test_reduce_once_respects_custom_provider_timeout(git_repo):
             self.last_timeout: float | None = None
 
         def complete_json(
-            self, *, system: str, user: str, schema_name: str, max_tokens: int,
-            temperature: float, stream: bool = False,
+                self, *, system: str, user: str, schema_name: str, max_tokens: int,
+            temperature: float,
             timeout: float | None = None, attempts: int | None = None,
         ) -> dict[str, Any]:
             self.last_timeout = timeout
