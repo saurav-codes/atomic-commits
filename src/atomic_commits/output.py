@@ -219,7 +219,9 @@ def print_apply_progress(idx: int, total: int, group, sha: str) -> None:
     console.print(f"[{idx}/{total}] {group.message} ... [green]{short}[/green]")
 
 
-def print_apply_result(results: list[AppliedCommit], *, as_json: bool = False) -> None:
+def print_apply_result(
+    results: list[AppliedCommit], *, planned_total: int | None = None, as_json: bool = False,
+) -> None:
     if as_json:
         sys.stdout.write(json.dumps([r.model_dump() for r in results], default=str) + "\n")
         sys.stdout.flush()
@@ -230,10 +232,11 @@ def print_apply_result(results: list[AppliedCommit], *, as_json: bool = False) -
         last = failed[-1]
         console.print(f"\n[red]Stopped.[/red] Reason: {last.detail}")
         console.print("No broad fallback commit was created.")
-        console.print("Next: rerun `atc` to create a fresh plan.")
+        console.print("Next: run `atc resume`; rerun `atc` only if the worktree changed.")
     else:
         console.print("\n[green]Done.[/green] Worktree clean except excluded files.")
-    console.print(f"Committed {len(committed)} of {len(results)} planned commits.")
+    total = planned_total if planned_total is not None else len(results)
+    console.print(f"Committed {len(committed)} of {total} planned commits.")
 
 
 def print_sessions(sessions: list[str] | list[dict[str, Any]]) -> None:
