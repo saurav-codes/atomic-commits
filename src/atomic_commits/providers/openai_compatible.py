@@ -10,7 +10,7 @@ from typing import Any
 
 from openai import APIConnectionError, APIStatusError, OpenAI, OpenAIError
 
-from ..errors import ProviderError
+from ..errors import InvalidAIResponseError, ProviderError
 from .base import _jittered_seconds, _record_usage, _redact_secrets, extract_json
 
 _CONTEXT_LIMIT = re.compile(
@@ -195,7 +195,17 @@ class OpenAICompatibleProvider:
                     "provider truncated its JSON response after ATC retried automatically"
                 )
             if raw.strip():
-                return extract_json(raw)
+                try:
+                    return extract_json(raw)
+                except InvalidAIResponseError:
+                    if output_attempt >= 2:
+                        raise
+                    self._progress("model returned invalid JSON; retrying automatically")
+                    messages[-1]["content"] += (
+                        "\n\nYour previous response was invalid JSON. Return one complete, valid "
+                        "JSON object now."
+                    )
+                    continue
             if finish_reason in {None, "stop"} and output_attempt < 2:
                 self._progress("model returned empty output; retrying automatically")
                 messages[-1]["content"] += (
