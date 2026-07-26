@@ -87,3 +87,20 @@ def test_empty_file_paths_allowed_when_hunks_present():
     )
     errors = validate_plan(plan, safe_hunk_ids=SAFE, hunk_to_path=HUNK_TO_PATH, mode="compact")
     assert errors == []
+
+
+def test_whole_file_change_cannot_be_split_across_groups():
+    plan = _plan(
+        [
+            CommitGroup(group_id="g1", message="refactor(a): rename first part", hunk_ids=["a.py::hunk::1"]),
+            CommitGroup(group_id="g2", message="refactor(a): rename second part", hunk_ids=["a.py::hunk::2"]),
+        ]
+    )
+    errors = validate_plan(
+        plan,
+        safe_hunk_ids=["a.py::hunk::1", "a.py::hunk::2"],
+        hunk_to_path={"a.py::hunk::1": "a.py", "a.py::hunk::2": "a.py"},
+        mode="compact",
+        indivisible_hunks_by_path={"a.py": {"a.py::hunk::1", "a.py::hunk::2"}},
+    )
+    assert any("whole-file change 'a.py' is split" in error for error in errors)

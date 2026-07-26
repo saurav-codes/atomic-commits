@@ -1,7 +1,7 @@
 """Integration test: Stager raises PatchApplyError when a whole_file_new path's
 worktree content is mutated after the plan was created.
 
-Guards the atomic-commit guarantee fixed in IMPROVEMENTS.md item 1.3. When the
+Guards the atomic-commit guarantee for untracked partial-file staging. When the
 no-index diff fallback is used to re-derive hunks for an intent-to-add new
 file, a fingerprint rematch failure must raise PatchApplyError rather than
 silently staging every hunk of the file (the old ``or cur_fc.hunks``
@@ -19,7 +19,7 @@ from atomic_commits.models import CommitGroup
 from atomic_commits.scanner import scan
 from atomic_commits.stager import Stager
 
-from .helpers import make_cfg, staged_paths
+from .helpers import git, make_cfg, staged_paths
 
 
 def test_stage_group_raises_when_new_file_mutated_after_plan(git_repo):
@@ -73,3 +73,28 @@ def test_stage_group_raises_when_new_file_mutated_after_plan(git_repo):
     #    `git diff --cached`, so the index is clean. A regression to
     #    `or cur_fc.hunks` would stage the mutated content here.
     assert staged_paths(git_repo) == []
+
+
+def test_stage_group_rejects_one_hunk_of_a_rename(git_repo):
+    lines = [f"line {index}" for index in range(40)]
+    (git_repo / "old.py").write_text("\n".join(lines) + "\n")
+    git(git_repo, "add", "old.py")
+    git(git_repo, "commit", "-q", "-m", "seed old.py")
+    git(git_repo, "mv", "old.py", "new.py")
+    lines[2] = "changed near start"
+    lines[30] = "changed near end"
+    (git_repo / "new.py").write_text("\n".join(lines) + "\n")
+
+    cfg = make_cfg(git_repo, mode="compact", include_staged=True)
+    gc = GitClient(git_repo)
+    snapshot = scan(gc, cfg)
+    renamed = next(file_change for file_change in snapshot.files if file_change.status == "renamed")
+    assert len(renamed.hunks) == 2
+    group = CommitGroup(
+        group_id="g1",
+        message="refactor(core): update part of renamed file",
+        hunk_ids=[renamed.hunks[0].hunk_id],
+    )
+
+    with pytest.raises(PatchApplyError, match="split across commit groups"):
+        Stager(gc, include_staged=True).stage_group(group, snapshot, snapshot)

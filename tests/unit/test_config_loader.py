@@ -1,4 +1,4 @@
-"""Tests for the config-file loader (IMPROVEMENTS 6.2).
+"""Tests for the config-file loader.
 
 Covers `resolve_provider_credentials` reading `.atc.toml` / `config.toml`,
 including the 1.1 hyphen-vs-underscore table-key fix and the 1.4

@@ -351,6 +351,48 @@ def test_local_repair_adds_verbose_group_rationale(git_repo):
     assert repaired.groups[0].unsplittable_reason
 
 
+def test_local_repair_merges_split_rename_hunks(git_repo):
+    from atomic_commits.change_analysis import build_change_graph
+    from atomic_commits.models import CommitGroup
+    from tests.integration.helpers import git
+
+    lines = [f"line {index}" for index in range(40)]
+    (git_repo / "old.py").write_text("\n".join(lines) + "\n")
+    git(git_repo, "add", "old.py")
+    git(git_repo, "commit", "-q", "-m", "seed old.py")
+    git(git_repo, "mv", "old.py", "new.py")
+    lines[2] = "changed near start"
+    lines[30] = "changed near end"
+    (git_repo / "new.py").write_text("\n".join(lines) + "\n")
+
+    cfg = make_cfg(git_repo, mode="compact", include_staged=True)
+    gc = GitClient(git_repo)
+    snapshot = scan(gc, cfg)
+    renamed = next(file_change for file_change in snapshot.files if file_change.status == "renamed")
+    assert len(renamed.hunks) == 2
+    broken = CommitPlan(
+        repo_fingerprint=snapshot.fingerprint,
+        base_head=snapshot.head_sha,
+        mode=cfg.mode,
+        groups=[
+            CommitGroup(
+                group_id=f"g{index}",
+                message=f"refactor(core): update renamed file part {index}",
+                hunk_ids=[hunk.hunk_id],
+            )
+            for index, hunk in enumerate(renamed.hunks, start=1)
+        ],
+    )
+
+    repaired = planner._repair_plan_locally(
+        broken, snapshot, build_change_graph(snapshot), [],
+    )
+    planner._validate(repaired, snapshot, cfg)
+
+    assert len(repaired.groups) == 1
+    assert set(repaired.groups[0].hunk_ids) == {hunk.hunk_id for hunk in renamed.hunks}
+
+
 def test_large_reduce_uses_bounded_parallel_batches(git_repo, monkeypatch):
     from atomic_commits.change_analysis import build_change_graph
     from tests.integration.helpers import git

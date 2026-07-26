@@ -3,10 +3,10 @@ import pytest
 
 from atomic_commits import planner
 from atomic_commits.committer import Committer
-from atomic_commits.errors import FingerprintMismatchError
-from atomic_commits.flows import apply_saved, resume
+from atomic_commits.errors import FingerprintMismatchError, PreflightError
+from atomic_commits.flows import _apply_with_progress, apply_saved, resume
 from atomic_commits.git_client import GitClient
-from atomic_commits.models import AppliedCommit
+from atomic_commits.models import AppliedCommit, CommitGroup, CommitPlan
 from atomic_commits.scanner import scan
 from atomic_commits.session import SessionStore
 
@@ -122,3 +122,79 @@ def test_apply_saved_persists_plan_and_snapshot(git_repo, mock_provider):
     assert (session_dir / "snapshot.json").is_file()
     # And the worktree should be clean after a successful apply.
     assert git(git_repo, "status", "--porcelain").stdout == ""
+
+
+def test_resume_repairs_and_applies_interrupted_multi_hunk_rename(git_repo):
+    lines = [f"line {index}" for index in range(40)]
+    (git_repo / "old.py").write_text("\n".join(lines) + "\n")
+    git(git_repo, "add", "old.py")
+    git(git_repo, "commit", "-q", "-m", "seed old.py")
+    git(git_repo, "mv", "old.py", "new.py")
+    lines[2] = "changed near start"
+    lines[30] = "changed near end"
+    (git_repo / "new.py").write_text("\n".join(lines) + "\n")
+
+    planning_cfg = make_cfg(git_repo, mode="compact", include_staged=True, no_verify=True)
+    gc = GitClient(git_repo)
+    snapshot = scan(gc, planning_cfg)
+    renamed = next(file_change for file_change in snapshot.files if file_change.status == "renamed")
+    assert len(renamed.hunks) == 2
+    broken = CommitPlan(
+        repo_fingerprint=snapshot.fingerprint,
+        base_head=snapshot.head_sha,
+        mode="compact",
+        groups=[
+            CommitGroup(
+                group_id=f"g{index}",
+                message=f"refactor(core): update renamed file part {index}",
+                hunk_ids=[hunk.hunk_id],
+            )
+            for index, hunk in enumerate(renamed.hunks, start=1)
+        ],
+    )
+    store = SessionStore(gc)
+    session_id = store.create()
+    store.write_plan(session_id, broken)
+    store.write_snapshot(session_id, snapshot)
+    # Simulate a staging failure that reset a previously staged rename into
+    # an unstaged deletion plus untracked addition before any commit landed.
+    git(git_repo, "reset", "-q", "HEAD", "--", "old.py", "new.py")
+
+    resume(gc, make_cfg(git_repo, mode="compact", no_verify=True))
+
+    assert git(git_repo, "status", "--porcelain").stdout == ""
+    applied = store.load_apply_log(session_id)
+    assert len(applied) == 1
+    assert applied[0].status == "committed"
+
+
+def test_apply_progress_survives_an_unexpected_later_error(git_repo, monkeypatch):
+    cfg = make_cfg(git_repo, mode="compact")
+    gc = GitClient(git_repo)
+    store = SessionStore(gc)
+    session_id = store.create()
+    plan = CommitPlan(
+        repo_fingerprint="fp",
+        base_head=gc.head_sha(),
+        mode="compact",
+        groups=[CommitGroup(
+            group_id="g1",
+            message="refactor(core): record completed commit",
+            hunk_ids=["a.py::hunk::1"],
+        )],
+    )
+
+    def fail_after_commit(self, commit_plan, on_event, **kwargs):
+        on_event(1, 1, commit_plan.groups[0], "abc123")
+        raise PreflightError("later staging failed")
+
+    monkeypatch.setattr(Committer, "apply", fail_after_commit)
+    with pytest.raises(PreflightError, match="later staging failed"):
+        _apply_with_progress(
+            gc, cfg, store, session_id, plan, show=False,
+        )
+
+    applied = store.load_apply_log(session_id)
+    assert [(item.group_id, item.sha, item.status) for item in applied] == [
+        ("g1", "abc123", "committed")
+    ]

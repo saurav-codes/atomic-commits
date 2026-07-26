@@ -1,4 +1,4 @@
-"""Integration tests for the Typer CLI command surface (IMPROVEMENTS coverage).
+"""Integration tests for the Typer CLI command surface.
 
 Exercises the command paths that do not require a real API provider: ``--help``
 for the app and each subcommand, ``doctor`` (no provider), and the default

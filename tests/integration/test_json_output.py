@@ -1,4 +1,4 @@
-"""Snapshot-style tests for the --json output contract (IMPROVEMENTS 6.3).
+"""Snapshot-style tests for the --json output contract.
 
 Contract: ``--json`` emits a single JSON value on stdout and nothing on stderr
 except errors. These tests run the CLI with ``--json`` for ``plan`` (the
@@ -51,7 +51,7 @@ def test_json_plan_has_groups(git_repo, mock_provider, monkeypatch):
 
 
 def test_json_apply_emits_list(git_repo, mock_provider, monkeypatch):
-    """`atc --json --apply` emits a single JSON array of applied-commit records."""
+    """Applying in JSON mode emits one JSON array of applied-commit records."""
     _dirty_repo(git_repo)
     monkeypatch.setattr(flows, "build_provider", lambda cfg: mock_provider)
     # The committer prints a human progress line per commit to stdout via

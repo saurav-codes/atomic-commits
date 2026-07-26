@@ -1,4 +1,4 @@
-"""Parallel run_map path coverage (IMPROVEMENTS.md 6.1).
+"""Parallel run_map path coverage.
 
 ``planner.run_map`` with ``total > 1`` spawns a ``ThreadPoolExecutor``; every
 other unit test exercises only the single-chunk serial branch. This module
