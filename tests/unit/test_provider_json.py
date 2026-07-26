@@ -1,12 +1,52 @@
-import io
-import json
-from urllib.error import HTTPError
+from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APIStatusError
 
+from atomic_commits.config import RunConfig
 from atomic_commits.errors import InvalidAIResponseError
+from atomic_commits.providers import build_provider
 from atomic_commits.providers.base import _strip_code_fence, extract_json
 from atomic_commits.providers.openai_compatible import OpenAICompatibleProvider
+
+
+class _Stream:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def __iter__(self):
+        return iter(self.chunks)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _StreamingClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+        self.chat = SimpleNamespace(completions=self)
+
+    def with_options(self, **kwargs):
+        return self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return _Stream(response)
+
+
+def _chunk(content=None, finish_reason=None):
+    choice = SimpleNamespace(
+        delta=SimpleNamespace(content=content), finish_reason=finish_reason,
+    )
+    return SimpleNamespace(choices=[choice], usage=None)
 
 
 def test_extract_json_accepts_plain_object():
@@ -68,6 +108,7 @@ def test_post_with_retry_catches_incomplete_read(monkeypatch):
     import atomic_commits.providers.base as base
 
     calls = {"n": 0}
+    events: list[str] = []
 
     class _Resp:
         def __init__(self, body):
@@ -101,120 +142,82 @@ def test_post_with_retry_catches_incomplete_read(monkeypatch):
             },
         )(),
     )
-    out = base._post_with_retry("http://x", {}, {}, attempts=3, timeout=1.0)
+    out = base._post_with_retry(
+        "http://x", {}, {}, attempts=3, timeout=1.0, progress=events.append,
+    )
     assert out == '{"ok": true}'
     assert calls["n"] == 2
+    assert events[0] == "request attempt 1/3 sent"
+    assert "IncompleteRead; retrying" in events[1]
+    assert events[2] == "request attempt 2/3 sent"
+    assert events[3].startswith("response received in ")
 
 
-def test_openai_provider_automatically_fits_output_to_context(monkeypatch):
-    import atomic_commits.providers.base as base
-
-    requested: list[int] = []
-
-    class _Resp:
-        def __init__(self, body: bytes):
-            self._body = body
-
-        def read(self):
-            return self._body
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    def fake_urlopen(req, timeout=None):
-        max_tokens = json.loads(req.data)["max_tokens"]
-        requested.append(max_tokens)
-        if len(requested) == 1:
-            body = json.dumps({
-                "error": {"message": (
-                    "This model's maximum context length is 1000 tokens. However, you "
-                    "requested 400 output tokens and your prompt contains at least 700 input tokens."
-                )}
-            }).encode()
-            raise HTTPError(req.full_url, 400, "bad request", {}, io.BytesIO(body))
-        return _Resp(b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}')
-
-    monkeypatch.setattr(base, "urlopen", fake_urlopen)
+def test_openai_provider_automatically_fits_output_to_context():
+    body = {
+        "error": {"message": (
+            "This model's maximum context length is 1000 tokens. However, you "
+            "requested 400 output tokens and your prompt contains at least 700 input tokens."
+        )}
+    }
+    response = httpx.Response(400, request=httpx.Request("POST", "http://x"), json=body)
+    error = APIStatusError("bad request", response=response, body=body)
+    client = _StreamingClient([error, [_chunk('{"ok":true}', "stop")]])
     provider = OpenAICompatibleProvider(api_key="test", model="test", base_url="http://x")
+    provider.client = client
 
     assert provider.complete_json(
         system="system", user="user", schema_name="Test", max_tokens=400, temperature=0,
     ) == {"ok": True}
-    assert requested == [400, 172]
+    assert [call["max_tokens"] for call in client.calls] == [400, 172]
 
 
-def test_openai_provider_retries_truncated_output_with_more_space(monkeypatch):
-    import atomic_commits.providers.base as base
-
-    requested: list[int] = []
-
-    class _Resp:
-        def __init__(self, body: bytes):
-            self._body = body
-
-        def read(self):
-            return self._body
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    def fake_urlopen(req, timeout=None):
-        requested.append(json.loads(req.data)["max_tokens"])
-        if len(requested) == 1:
-            return _Resp(
-                b'{"choices":[{"message":{"content":"{\\"partial\\":"},'
-                b'"finish_reason":"length"}]}'
-            )
-        return _Resp(b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}')
-
-    monkeypatch.setattr(base, "urlopen", fake_urlopen)
-    provider = OpenAICompatibleProvider(api_key="test", model="test", base_url="http://x")
+def test_openai_provider_retries_truncated_output_with_more_space():
+    events = []
+    client = _StreamingClient([
+        [_chunk('{"partial":', "length")],
+        [_chunk('{"ok":true}', "stop")],
+    ])
+    provider = OpenAICompatibleProvider(
+        api_key="test", model="test", base_url="http://x", progress=events.append,
+    )
+    provider.client = client
 
     assert provider.complete_json(
         system="system", user="user", schema_name="Test", max_tokens=1024, temperature=0,
     ) == {"ok": True}
-    assert requested == [1024, 2048]
+    assert [call["max_tokens"] for call in client.calls] == [1024, 2048]
+    assert all(call["stream"] is True for call in client.calls)
+    assert any("model output: {\"ok\":true}" in event for event in events)
+    assert all("characters" not in event for event in events)
 
 
-def test_openai_provider_retries_empty_stop_response(monkeypatch):
-    import atomic_commits.providers.base as base
-
-    calls = 0
-
-    class _Resp:
-        def __init__(self, body: bytes):
-            self._body = body
-
-        def read(self):
-            return self._body
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    def fake_urlopen(req, timeout=None):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return _Resp(
-                b'{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}'
-            )
-        body = json.loads(req.data)
-        assert "previous response was empty" in body["messages"][-1]["content"]
-        return _Resp(b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}')
-
-    monkeypatch.setattr(base, "urlopen", fake_urlopen)
+def test_openai_provider_retries_empty_stop_response():
+    client = _StreamingClient([
+        [_chunk("", "stop")],
+        [_chunk('{"ok":true}', "stop")],
+    ])
     provider = OpenAICompatibleProvider(api_key="test", model="test", base_url="http://x")
+    provider.client = client
 
     assert provider.complete_json(
         system="system", user="user", schema_name="Test", max_tokens=1024, temperature=0,
     ) == {"ok": True}
-    assert calls == 2
+    assert "previous response was empty" in client.calls[1]["messages"][-1]["content"]
+
+
+def test_model_preview_containing_retry_stays_transient(monkeypatch):
+    import atomic_commits.providers as providers
+
+    live_messages = []
+    notes = []
+    monkeypatch.setattr(providers, "live", live_messages.append)
+    monkeypatch.setattr(providers, "note", lambda message, **_kwargs: notes.append(message))
+    provider = build_provider(RunConfig(model="test", api_key="test"))
+
+    provider.progress("model output: update retry handling")
+    assert live_messages == ["model output: update retry handling"]
+    assert notes == []
+
+    provider.progress("stream interrupted; retrying in 1.0s")
+    assert notes == ["Provider: stream interrupted; retrying in 1.0s"]
