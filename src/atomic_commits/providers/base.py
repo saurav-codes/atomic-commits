@@ -1,4 +1,4 @@
-"""Provider interface (implementation.md section 12).
+"""Provider protocol and shared HTTP/JSON helpers.
 
 Providers return validated JSON objects. Implementations must extract JSON
 robustly and never let the rest of the system trust raw model text.
@@ -12,6 +12,7 @@ import random
 import re
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
@@ -113,6 +114,7 @@ def _post_with_retry(
     *,
     attempts: int = 3,
     timeout: float = 180.0,
+    progress: Callable[[str], None] | None = None,
 ) -> str:
     body = json.dumps(payload).encode("utf-8")
     last_error: Exception | None = None
@@ -126,6 +128,9 @@ def _post_with_retry(
         if remaining <= 0:
             break
         req = Request(url, data=body, headers={**headers, "Content-Type": "application/json"}, method="POST")
+        attempt_started = time.monotonic()
+        if progress:
+            progress(f"request attempt {attempt + 1}/{attempts} sent")
         try:
             with urlopen(req, timeout=remaining) as resp:
                 text = resp.read().decode("utf-8")
@@ -141,15 +146,25 @@ def _post_with_retry(
                 sleep_for = retry_after
             else:
                 sleep_for = _jittered_seconds(float(min(2**attempt, backoff_cap)))
+            failure = f"HTTP {exc.code}"
         except (URLError, TimeoutError, http.client.HTTPException) as exc:
             last_error = exc
             sleep_for = _jittered_seconds(float(min(2**attempt, backoff_cap)))
+            failure = type(exc).__name__
         else:
+            if progress:
+                elapsed = time.monotonic() - attempt_started
+                progress(f"response received in {elapsed:.1f}s; decoding {len(text):,} bytes")
             return text
         if attempt + 1 < attempts:
             remaining = end_time - time.monotonic()
             if remaining <= 0:
                 break
+            if progress:
+                progress(
+                    f"{failure}; retrying in {min(sleep_for, remaining):.1f}s "
+                    f"({attempt + 2}/{attempts})"
+                )
             time.sleep(min(sleep_for, remaining))
     raise ProviderError(
         "provider request failed after retries",

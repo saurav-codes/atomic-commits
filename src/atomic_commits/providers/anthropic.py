@@ -1,4 +1,4 @@
-"""Anthropic provider over plain HTTP (implementation.md section 12.2).
+"""Anthropic provider over plain HTTP.
 
 Uses the Messages API. Asks for JSON-only output and extracts JSON robustly.
 """
@@ -6,6 +6,7 @@ Uses the Messages API. Asks for JSON-only output and extracts JSON robustly.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from ..errors import ProviderError
@@ -23,12 +24,14 @@ class AnthropicProvider:
         base_url: str = "https://api.anthropic.com",
         timeout: float = 180.0,
         attempts: int = 3,
+        progress: Callable[[str], None] | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.attempts = attempts
+        self.progress = progress
 
     def complete_json(
         self,
@@ -57,6 +60,7 @@ class AnthropicProvider:
             url, payload, headers,
             timeout=timeout if timeout is not None else self.timeout,
             attempts=attempts if attempts is not None else self.attempts,
+            progress=self.progress,
         )
         data = json.loads(text)
         usage = data.get("usage") if isinstance(data, dict) else None
