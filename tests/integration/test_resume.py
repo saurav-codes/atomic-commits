@@ -157,8 +157,12 @@ def test_resume_repairs_and_applies_interrupted_multi_hunk_rename(git_repo):
     store.write_plan(session_id, broken)
     store.write_snapshot(session_id, snapshot)
     # Simulate a staging failure that reset a previously staged rename into
-    # an unstaged deletion plus untracked addition before any commit landed.
+    # an unstaged deletion plus untracked addition. Advancing HEAD reproduces
+    # the same classification change after an earlier planned commit landed.
     git(git_repo, "reset", "-q", "HEAD", "--", "old.py", "new.py")
+    (git_repo / "marker.py").write_text("done = True\n")
+    git(git_repo, "add", "marker.py")
+    git(git_repo, "commit", "-q", "-m", "earlier planned commit")
 
     resume(gc, make_cfg(git_repo, mode="compact", no_verify=True))
 
