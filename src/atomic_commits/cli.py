@@ -100,7 +100,7 @@ def _doctor_diag(git: GitClient, cfg: RunConfig) -> list[tuple[str, bool]]:
     return results
 
 
-def _confirm_now(cfg: RunConfig, n: int, messages: list[str]) -> bool:
+def _confirm_now(cfg: RunConfig, n: int) -> bool:
     """Require --yes or an interactive confirmation before creating commits."""
     if cfg.yes:
         return True
@@ -109,15 +109,12 @@ def _confirm_now(cfg: RunConfig, n: int, messages: list[str]) -> bool:
             f"committing requires --yes for {n} proposed commit(s) in JSON mode; pass --yes "
             "to proceed (or run without --json for an interactive prompt).",
         )
-    console.print(f"[bold]Proposed commits ({n}):[/bold]")
-    for i, msg in enumerate(messages, start=1):
-        console.print(f"  {i}. {msg}")
     if not err_console.is_terminal:
         raise AtcError(
             f"committing requires --yes in a non-interactive terminal; pass --yes to "
             f"commit {n} proposed commit(s).",
         )
-    return typer.confirm("Apply these commits?", default=False)
+    return typer.confirm(f"Apply these {n} commits?", default=False)
 
 
 def _append_trailers(plan: CommitPlan, trailers: list[str]) -> CommitPlan:
@@ -331,13 +328,13 @@ def _run_default(
             _run_rewrite(git, cfg, trailers, squash=True)
             return
         # Default: plan, confirm, commit. `atc plan` is the dry-run path.
+        flows.prepare_hooks(git, cfg)
         commit_plan = flows.dry_run(git, cfg)
-        messages = [g.message for g in commit_plan.groups]
         # With --json and no --yes, stop at the plan (emit JSON, do not commit).
         # With --yes (or an interactive terminal), confirm then commit.
         if cfg.json_output and not cfg.yes:
             return
-        if not _confirm_now(cfg, len(messages), messages):
+        if not _confirm_now(cfg, len(commit_plan.groups)):
             console.print("[yellow]aborted[/yellow]")
             return
         if trailers:
@@ -459,8 +456,7 @@ def commit_changes(
     try:
         flows.prepare_hooks(git, cfg)
         plan = flows.dry_run(git, cfg)
-        messages = [group.message for group in plan.groups]
-        if not _confirm_now(cfg, len(messages), messages):
+        if not _confirm_now(cfg, len(plan.groups)):
             console.print("[yellow]aborted[/yellow]")
             return
         flows.apply_saved(git, cfg, None)
