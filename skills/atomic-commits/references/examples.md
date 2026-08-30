@@ -77,3 +77,28 @@ Option B (Separated when test suite is substantial):
    - Files: `tests/auth/github.test.ts`
 6. `docs(auth): document required GITHUB_CLIENT_ID environment variables`
    - Files: `README.md`, `.env.example`
+
+---
+
+## Scenario 5: Hunk-Level Splitting Within a Single File
+
+**Situation:** `utils/parser.ts` was modified in one editing session with three unrelated changes: a new `parse-duration` helper, a rename of `parseDate` to `parseTimestamp`, and a bug fix to tokenization. The file-level diff mixes all three.
+
+### ❌ Bad (Whole-File Commit)
+```text
+refactor(parser): add helper, rename parseDate, and fix tokenizer
+```
+*Why it's bad:* The rename, the addition, and the fix cannot be reverted or reviewed independently.
+
+### ✅ Good (Hunk-Level Atomic Sequence)
+Split the file's diff into hunks and stage them selectively:
+1. `refactor(parser): rename parse-date to parse-timestamp`
+   - Hunks: rename definition + all in-file references (one indivisible rename)
+2. `feat(parser): add parse-duration helper`
+   - Hunks: the new helper function
+3. `fix(parser): handle unclosed bracket tokens in tokenizer`
+   - Hunks: the tokenizer guard clause
+4. `test(parser): add cases for duration parsing and bracket recovery`
+   - Files: `tests/test_parser.ts`
+
+Use `git add -p <file>` or craft per-hunk patches and apply them with `git apply --cached`. Verify each staged diff with `git diff --cached` before committing.
