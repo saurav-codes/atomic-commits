@@ -1,20 +1,23 @@
 ---
 name: atomic-commits
-description: Analyzes git worktree changes and commits them as clean, granular, conventional atomic commits in logical dependency order.
+description: Analyzes git worktree changes and commits them as clean, granular, conventional atomic commits in logical dependency order. Commit-maxing: split changes as finely as possible.
 ---
 
 # Atomic Commits
 
 A skill for AI coding agents to dissect dirty Git working trees into clean, granular, and self-contained **atomic commits** following the Conventional Commits specification.
 
+**Commit-maxing mindset**: The default unit of a commit is the *hunk* or *symbol*, not the file. Never stop splitting because "the file is already committed" — stop only when the next split would create a commit that is meaningless on its own or breaks the build. If two candidate changes *could* be separate commits, they **must** be separate commits. There are no numeric commit targets; the target is maximal decomposition of the actual diff.
+
 ---
 
 ## 1. What Makes a Commit "Atomic"?
 
 A commit is **atomic** if and only if:
-1. **Single Purpose**: It accomplishes exactly one focused task (e.g., adds a helper function, refactors a module, fixes a specific bug, adds a test suite).
+1. **Single Purpose**: It accomplishes exactly one focused task (e.g., adds one helper function, renames one symbol, fixes one bug, adds one test case).
 2. **Separation of Concerns**: Unrelated changes (refactors, business logic, dependencies, documentation) are **never combined** in the same commit.
 3. **Standalone Completeness**: The codebase remains buildable, testable, and functional after every single commit in history whenever possible.
+4. **Minimal Diff**: Each commit touches the fewest lines necessary. Whole-file staging is a last resort, only when every hunk in the file serves the same single purpose.
 
 ---
 
