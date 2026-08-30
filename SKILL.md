@@ -25,11 +25,11 @@ A commit is **atomic** if and only if:
 
 When partitioning changes across multiple files, always stage and commit in this logical dependency order:
 
-1. **`build` / `chore(deps)`**: Dependencies, package manifests, lockfiles, tool configs (`package.json`, `pyproject.toml`, `tsconfig.json`, `.gitignore`).
-2. **`refactor` / `style`**: Preparatory changes, extractions, renames, file reorganization, formatting changes (**strictly zero behavior change**).
-3. **`feat` / `fix` / `perf`**: Core domain logic, schemas, models, API endpoints, algorithms, bug fixes, or performance enhancements.
-4. **`test`**: Unit tests, integration tests, mock fixtures, and regression test suites covering the changes.
-5. **`docs`**: Documentation, README updates, changelogs, architecture notes, and docstrings.
+1. **`build` / `chore(deps)`**: Dependencies, package manifests, lockfiles, tool configs (`package.json`, `pyproject.toml`, `tsconfig.json`, `.gitignore`). Split per-concern: one commit per dependency bump or config change.
+2. **`refactor` / `style`**: Preparatory changes, extractions, renames, file reorganization, formatting changes (**strictly zero behavior change**). Split per-symbol: one rename, one extraction, one moved block per commit.
+3. **`feat` / `fix` / `perf`**: Core domain logic, schemas, models, API endpoints, algorithms, bug fixes, or performance enhancements. Split per behavior: one endpoint, one validation rule, one branch of logic per commit.
+4. **`test`**: Unit tests, integration tests, mock fixtures, and regression test suites covering the changes. Split per test case or per fixture where feasible.
+5. **`docs`**: Documentation, README updates, changelogs, architecture notes, and docstrings. Split per doc section or topic.
 
 ---
 
@@ -57,11 +57,47 @@ Every commit message MUST follow this structure:
 - **Imperative mood**: Use `"add"`, `"fix"`, `"refactor"`, `"remove"`, `"extract"`, not `"added"`, `"adds"`, `"fixing"`.
 - **Lowercase subject**: Start the description with a lowercase letter (unless referencing a proper noun or code identifier).
 - **No trailing period**: Keep the subject concise (50–72 characters max).
-- ❌ **Forbidden generic terms**: Never use words like `"update files"`, `"misc changes"`, `"clean up"`, `"wip"`, `"fix stuff"`, or `"various updates"`.
+- ❌ **Forbidden generic terms**: Never use words like `"update files"`, `"misc changes"`, `"clean up"`, `"wip"`, `"fix stuff"`, or `"various updates"`. With hunk-level commits, every message describes one concrete symbol or behavior, so generic messages signal under-splitting.
 
 ---
 
-## 4. Execution Workflow
+## 4. Splitting Techniques (Commit-Maxing)
+
+Apply these techniques to decompose the diff to the finest practical grain:
+
+### Per-file splitting
+- Each file with an independent change gets its own commit. Never stage multiple files together unless they form one indivisible change (e.g., a rename touching definition + all references).
+
+### Per-hunk splitting (the default)
+- Within a file, stage hunks individually with `git add -p <file>` (interactive) or by crafting patches and applying them to the index:
+  ```bash
+  git diff <file> > /tmp/full.patch
+  # split /tmp/full.patch into per-hunk patches, then:
+  git apply --cached /tmp/hunk-1.patch
+  git commit -m "<type>(<scope>): <exact behavior of hunk 1>"
+  ```
+- Verify what is staged before each commit: `git diff --cached` (full diff, not just `--stat`).
+
+### Per-symbol splitting
+- One new function, one new class, one new constant, one new route per commit. A commit adding three helpers becomes three commits: `feat(utils): add parse-duration helper`, then `feat(utils): add format-bytes helper`, then `feat(utils): add clamp-number helper`.
+- Order within a file respects dependencies: the helper is committed before the call site that uses it.
+
+### Separating mechanical from semantic changes
+- **Import additions**: stage newly added imports separately (`refactor(<scope>): add imports for X`) when they can stand alone, or together with the first commit that requires them — never spread across unrelated commits.
+- **Signature changes**: commit the signature change (`refactor(<scope>): change X signature to accept Y`) separately from call-site updates and separately from the behavior change that motivated it.
+- **Formatting/whitespace**: isolated into `style(<scope>): ...` commits, never mixed with logic.
+- **Type definitions / interfaces**: extracted into their own commits before the implementations that depend on them.
+
+### Test interleaving
+- When a test file accompanies logic changes, each test case (or tightly-coupled test group) is its own `test(<scope>): ...` commit after the corresponding logic commit. One test per commit when tests are independent.
+
+### Maintaining buildability
+- Before finalizing, sanity-check that splitting doesn't create commits referencing symbols that don't exist yet. Reorder or merge the minimum necessary hunks to keep each commit compiling.
+- Run the project's type check or build (`tsc --noEmit`, `cargo check`, `go build ./...`, etc.) at key intermediate points; if a single hunk cannot compile alone, group it with the smallest set of hunks that compiles.
+
+---
+
+## 5. Execution Workflow
 
 When the user requests atomic commits or when finishing a task:
 
