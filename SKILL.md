@@ -115,30 +115,35 @@ Inspect the file list to ensure no sensitive or transient files are staged:
 - *If untracked sensitive files exist, immediately warn the user and do not stage them.*
 
 ### Step 3: Formulate the Atomic Commit Plan
-1. Review diffs for modified files (`git diff <path>`).
-2. Group files into distinct atomic batches based on the **Topological Flow**.
-3. If a single file contains both a pure refactor AND a new feature, stage the refactor first, commit, then stage the feature.
-4. Present a quick preview to the user if interactive feedback is needed.
+1. Review diffs hunk by hunk (`git diff <path>`), not file by file.
+2. Decompose every hunk into per-symbol, per-hunk batches based on the **Topological Flow** and the **Splitting Techniques** above.
+3. If a single file contains both a pure refactor AND a new feature, split at the hunk level: stage the refactor hunks, commit, then stage the feature hunks.
+4. If a single hunk contains both a refactor and a feature, manually craft the intermediate patch stages (edit the file to the intermediate state, `git add` it, restore the final state) so each concern lands separately.
+5. Present a quick preview of the commit plan to the user if interactive feedback is needed.
 
 ### Step 4: Stage and Commit Iteratively
-For each group in sequence:
-1. **Stage**:
+For each batch in sequence:
+1. **Stage** (file-level when the whole file is one concern, hunk-level otherwise):
    ```bash
-   git add <file1> <file2> ...
+   git add <file>
+   # or, for partial staging:
+   git add -p <file>
+   git apply --cached <hunk.patch>
    ```
 2. **Verify Staged Content**:
    ```bash
-   git diff --cached --stat
+   git diff --cached
    ```
 3. **Commit**:
    ```bash
    git commit -m "<type>(<scope>): <imperative verb> <exact behavior>"
    ```
-4. **Confirm**: Ensure `HEAD` advanced and the index is ready for the next group.
+4. **Confirm**: Ensure `HEAD` advanced and the index is ready for the next batch.
 
 ### Step 5: Final Clean State Check
 1. Run `git status` to verify the working tree is clean.
-2. Output a summary table of the newly created commits:
+2. Run the project's build/type check to confirm the final HEAD is sound.
+3. Output a summary table of the newly created commits:
    - Hash (`git log -n <count> --oneline`)
    - Type & Scope
    - Summary of changes
