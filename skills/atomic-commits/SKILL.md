@@ -1,6 +1,6 @@
 ---
 name: atomic-commits
-description: Analyzes git worktree changes and commits them as clean, granular, conventional atomic commits in logical dependency order. Commit-maxing: split changes as finely as possible.
+description: "Analyzes git worktree changes and commits them as clean, granular, conventional atomic commits in logical dependency order. Commit-maxing: split changes as finely as possible."
 ---
 
 # Atomic Commits
